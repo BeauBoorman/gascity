@@ -1144,6 +1144,7 @@ func TestAgentConfigFromAgentCoversPersistedFields(t *testing.T) {
 		MaxSessionAge:          "5h",
 		MaxSessionAgeJitter:    "15m",
 		SleepAfterIdle:         "30s",
+		AutoReclaimStaleClaims: true,
 		AssignedWorkDeferLimit: intPtr(4),
 		InstallAgentHooks:      []string{"claude"},
 		HooksInstalled:         &trueVal,
