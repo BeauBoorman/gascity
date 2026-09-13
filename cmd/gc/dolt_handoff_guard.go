@@ -15,17 +15,35 @@ import (
 // from a proxied city, carries bd's binding in committed metadata with no
 // journal record at all. Consulting only the journal let `gc dolt-state
 // start-managed` raise a GC-managed sql-server over bd's proxy root.
+// The three arms answer in order of how specific their evidence is, because the
+// refusal has to name the file that actually proves it. A handed-off city has no
+// .gc/scope-ownership.json and no proxied binding — its journal is the only
+// record — so answering with the generic message sent the operator to two paths
+// that do not exist and never mentioned the one that does.
 func admitLegacyManagedDoltLifecycle(cityPath string) error {
 	cityPath = normalizePathForCompare(cityPath)
+	if err := handoffJournalBlocksManagedDoltStart(cityPath); err != nil {
+		return err
+	}
 	providerOwned, err := cityScopeProviderOwned(cityPath)
 	if err != nil {
 		return fmt.Errorf("classify provider scope ownership: %w", err)
 	}
-	if providerOwned {
-		return fmt.Errorf("provider scope ownership blocks the managed Dolt lifecycle for %s: bd owns this scope's Dolt process (ownership journal %s, beads metadata %s)",
-			cityPath, providerScopeOwnershipPath(cityPath), scopeMetadataJSONPath(cityPath))
+	if !providerOwned {
+		return nil
 	}
-	return handoffJournalBlocksManagedDoltStart(cityPath)
+	return fmt.Errorf("provider scope ownership blocks the managed Dolt lifecycle for %s: bd owns this scope's Dolt process (%s)",
+		cityPath, providerOwnershipEvidence(cityPath))
+}
+
+// providerOwnershipEvidence names the durable record that makes a scope
+// provider-owned, for a refusal message. The handoff arm is answered before this
+// is reached, so what is left is the ownership journal or bd's own binding.
+func providerOwnershipEvidence(cityPath string) string {
+	if _, journaled, err := providerScopeOwnership(cityPath, cityPath); err == nil && journaled {
+		return "ownership journal " + providerScopeOwnershipPath(cityPath)
+	}
+	return "beads metadata " + scopeMetadataJSONPath(cityPath)
 }
 
 // handoffJournalBlocksManagedDoltStart refuses a managed-city lifecycle
