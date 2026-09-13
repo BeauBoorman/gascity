@@ -80,16 +80,52 @@ func bdOwnedBackupCoverageNote(scopeRoot string) string {
 
 // scopeIsProviderOwned reports whether bd owns this scope's Dolt lifecycle.
 //
-// Two signals, the same ones cmd/gc classifies on: the city's ownership journal
-// names the scope, or bd's committed metadata binds it to the proxied path — an
-// arm that matters on its own because a workspace migrated in place, or cloned
-// from a proxied city, arrives with no journal entry at all.
+// Three signals, the same ones cmd/gc classifies on: the city's ownership
+// journal names the scope; bd's committed metadata binds it to the proxied path
+// — an arm that matters on its own because a workspace migrated in place, or
+// cloned from a proxied city, arrives with no journal entry at all; or bd's
+// ownership handoff journal records a committed transfer of the city.
+//
+// The handoff arm is not covered by either of the others. The transfer writes
+// no .gc record (bd's journal is the record) and leaves a bd-owned *direct*
+// store, so metadata.json still says dolt_mode: server. Without this arm a
+// handed-off city reads as legacy-GC-managed to every check that asks the
+// question — most visibly as a rig dolt-backup warning prescribing a
+// `dolt backup` against a server gc no longer runs.
 //
 // The transport is not part of the question. A bd-owned direct scope runs its
 // Dolt under bd's root exactly as a proxied one does; only the process in front
 // of it differs.
 func scopeIsProviderOwned(cityPath, scopeRoot string) bool {
-	return scopeJournaledToProvider(cityPath, scopeRoot) || scopeBindingIsProviderOwnedProxied(scopeRoot)
+	return scopeJournaledToProvider(cityPath, scopeRoot) ||
+		scopeBindingIsProviderOwnedProxied(scopeRoot) ||
+		cityHandedToProvider(cityPath)
+}
+
+// cityHandedToProvider reports whether the city's ownership handoff journal
+// records a committed transfer to bd. It asks about the city for every scope
+// because the handoff is city-root only: a rig shares the city's server and
+// carries no journal of its own.
+//
+// The read is deliberately shallow, like scopeJournalStateIs above it. cmd/gc
+// authenticates the same journal in full (cmd/gc/dolt_handoff_projection.go)
+// because there the answer gates a lifecycle action — whether to start a second
+// sql-server over a scope bd owns — and a forged record would be a second
+// owner. Here the answer only chooses which lens to report through, and every
+// unreadable, malformed or unsettled journal falls back to the ordinary one.
+func cityHandedToProvider(cityPath string) bool {
+	data, err := os.ReadFile(filepath.Join(pathutil.NormalizePathForCompare(cityPath), ".beads", "ownership-handoff.json"))
+	if err != nil {
+		return false
+	}
+	var journal struct {
+		Phase string `json:"phase"`
+		Owner string `json:"owner"`
+	}
+	if err := json.Unmarshal(data, &journal); err != nil {
+		return false
+	}
+	return journal.Phase == "committed" && journal.Owner == "bd"
 }
 
 // scopeOwnershipJournal mirrors the fields doctor needs from
