@@ -87,6 +87,12 @@ A scope's beads lifecycle belongs to the provider when **either**:
    **or**
 3. bd's own metadata says `backend: dolt` and `dolt_mode: proxied-server`.
 
+Arm 2 is a reader, and on rc.2 nothing writes what it reads: no bd release
+performs the handoff yet, and gc will never write that journal — it is bd's
+record of bd's own transfer. It is here because the answer it gives gates
+whether gc may raise a second `sql-server` over a scope bd owns, so gc
+authenticates the record in full rather than trusting its phase field.
+
 Arm 3 is what makes an *un-journaled* proxied scope work. A workspace migrated
 in place with `bd migrate from-server-to-proxied-server`, or cloned from a
 proxied city, has no journal record, and classifying it as legacy meant
@@ -232,6 +238,43 @@ Both variables are documented in `TESTING.md`. Without an rc.2 bd the whole
 matrix skips, so CI is unaffected; without `GC_ACCEPTANCE_LEGACY_GC_BIN` only
 the legacy shape skips.
 
+## Migrating a legacy GC-managed city (the supported rc.2 path)
+
+`gc beads city migrate-proxied` is the **only** supported way to move an
+existing GC-managed direct city onto the proxied default on rc.2:
+
+```
+gc stop  →  gc beads city migrate-proxied [--dry-run] [--json]  →  gc start
+```
+
+It is an ordering and residue command, not a second migration: bd's own
+`bd migrate from-server-to-proxied-server` does the work, city first, then each
+rig. Around it gc supplies the four things bd cannot:
+
+1. **The stopped fence.** bd's running-server precondition consults only its
+   own `.beads/dolt-server.pid`, which gc never writes. Migrating onto a live
+   gc-owned server commits the mode flip and then cannot start the proxy,
+   because Dolt still holds the exclusive data-dir lock — the scope is unusable
+   until the old server dies. gc refuses instead, and re-checks immediately
+   before each `bd migrate`, not just once at entry.
+2. **`dolt init` in the city's data directory**, and only there, and only when
+   `.dolt/repo_state.json` is missing. gc's multi-database data dir was never a
+   Dolt repository, and bd's root validator requires one.
+3. **The rig's relative `dolt_data_dir`.** Every legacy rig's database lives
+   inside the *city's* data dir. The value must be relative: beads strips an
+   absolute one on save, and bd saves the config mid-migration.
+4. **Residue retirement.** The canonical config rewrite drops gc's endpoint
+   keys and `dolt.mode`, and gc's own `.gc/runtime/packs/dolt` publication and
+   `.beads/dolt-server.port` mirrors are retired by the command.
+
+Every scope it will not touch is refused by name, and the refusals are the
+point: a provider-owned or handed-off scope, an external endpoint, an embedded
+or non-Dolt store, and a rig that owns a store of its own. An already-proxied
+scope is a no-op. Each scope is independent and idempotent, so a partly failed
+run is finished by running it again; `--dry-run` prints the exact per-scope plan
+and writes nothing. Procedure, refusals and recovery:
+`engdocs/runbooks/beads-migrate-proxied.md`.
+
 ## Deliberately not done
 
 - **Native SQL over the proxy.** Proxied scopes read and write through the bd
@@ -240,17 +283,25 @@ the legacy shape skips.
   connection-lifetime ownership, idle semantics and proxy identity are a
   separate design. The CLI front door costs a fork per operation, which is a
   real regression for controller-heavy cities.
-- **The journaled legacy→bd ownership handoff.** The responder side is present
-  and inert; the driver (`bd migrate ownership-handoff`) needs beads ≥ rc.3.
-  Until then the migration path for an existing direct city is explicit and
-  operator-driven: `gc stop` → `gc beads city migrate-proxied` → `gc start`.
-  That command orchestrates bd's own
-  `bd migrate from-server-to-proxied-server` per scope and fences the one thing
-  bd cannot see — a running Gas City server — because bd's precondition
-  consults only its own pid file and would otherwise commit the mode flip onto
-  a data dir Dolt still holds locked. Procedure, refusals and recovery:
-  `engdocs/runbooks/beads-migrate-proxied.md`. It is an interim path; the
-  journaled handoff supersedes it.
+- **The journaled legacy→bd ownership handoff.** Not available on rc.2, and no
+  part of it ships here. An earlier revision of this branch carried a hidden
+  `gc dolt-state handoff-inspect`/`handoff-stop` protocol for bd to drive gc as
+  a subprocess. That shape is withdrawn: **bd never calls gc.** bd spawns
+  nothing but `dolt`, it has no provider, hook or callback into its caller, and
+  everything it needs about the caller arrives as command-line input. A
+  transfer built the other way round makes bd's ownership journal depend on a
+  binary it cannot verify, and makes gc's refusals reachable only through bd.
+
+  When the handoff does land it will be **gc-orchestrated over bd verbs**: bd
+  grows a phased, journal-driven `bd migrate ownership-handoff`
+  (`prepare` → `legacy-gone` → `configure` → `verify` → `commit`, with
+  `rollback`/`rollback-finish` and a non-mutating `status`), bd owns the
+  journal, the replacement server, the fences and the rollback, and gc calls
+  those verbs in order — stopping and restarting only its own legacy server in
+  between. No such beads tag exists yet, so gc ships no driver for it. What gc
+  keeps here is the reading half: the committed-journal projection and the
+  three-arm ownership classification, so that a scope bd has taken over is
+  recognised as bd's the moment such a journal exists.
 - **Remote hosted proxies and Windows/macOS proxied lifecycle.** rc.2 defines
   but does not implement the latter.
 

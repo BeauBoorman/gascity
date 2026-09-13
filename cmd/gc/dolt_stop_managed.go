@@ -87,64 +87,20 @@ func waitForManagedDoltProcessExit(pid int, timeout time.Duration, alive func(in
 }
 
 func stopManagedDoltProcessWithOptions(cityPath, port string, clearPublishedState bool) (managedDoltStopReport, error) {
-	return stopManagedDoltProcessWithExpectedIdentity(cityPath, port, clearPublishedState, nil)
-}
-
-// stopManagedDoltProcessWithExpectedIdentity is the strict handoff variant of
-// managed stop. When expected is non-nil, every target-selection and forced
-// signal gate must still match that exact PID/config/start identity; a foreign
-// port holder or reused PID is refused rather than treated as cleanup success.
-func stopManagedDoltProcessWithExpectedIdentity(cityPath, port string, clearPublishedState bool, expected *handoffProtocolIdentity) (managedDoltStopReport, error) {
-	var layout managedDoltRuntimeLayout
-	var err error
-	if expected != nil {
-		layout, err = resolveCanonicalManagedDoltRuntimeLayout(cityPath)
-	} else {
-		layout, err = resolveManagedDoltRuntimeLayout(cityPath)
-	}
+	layout, err := resolveManagedDoltRuntimeLayout(cityPath)
 	if err != nil {
 		return managedDoltStopReport{}, err
 	}
-	var info managedDoltProcessInspection
-	if expected == nil {
-		info, err = inspectManagedDoltProcess(cityPath, port)
-	} else {
-		// Strict handoff refusal must not inherit ordinary cleanup discovery's
-		// stale-PID-file removal side effect.
-		info, err = inspectManagedDoltProcessNoMutation(cityPath, port)
-	}
+	info, err := inspectManagedDoltProcess(cityPath, port)
 	if err != nil {
 		return managedDoltStopReport{}, err
 	}
 	report := managedDoltStopReport{}
 	targetPID := 0
 	strictTarget := func(pid int) bool {
-		if pid <= 0 || !managedDoltProcessControllable(pid, layout) {
-			return false
-		}
-		if expected == nil {
-			return true
-		}
-		return pid == expected.PID && managedDoltHandoffProcessOwned(pid, layout) &&
-			managedDoltPIDStartIdentityMatches(pid, uint64(expected.StartTimeTicks), expected.StartIdentity)
-	}
-	if expected != nil {
-		holder := findPortHolderPID(port)
-		if holder <= 0 || holder != expected.PID {
-			return report, fmt.Errorf("handoff listener ownership changed: expected pid %d, found pid %d", expected.PID, holder)
-		}
-		if info.ManagedPID != expected.PID && info.PortHolderPID != expected.PID {
-			return report, fmt.Errorf("handoff managed pid changed: expected pid %d", expected.PID)
-		}
-		if !strictTarget(expected.PID) {
-			return report, fmt.Errorf("handoff managed pid %d is no longer owned", expected.PID)
-		}
-		targetPID = expected.PID
+		return pid > 0 && managedDoltProcessControllable(pid, layout)
 	}
 	switch {
-	case targetPID > 0:
-		// Strict handoff selection above captured the target and verified the
-		// listener holder. Do not replace it with generic discovery.
 	case info.ManagedPID > 0 && info.ManagedOwned && strictTarget(info.ManagedPID):
 		targetPID = info.ManagedPID
 	case info.PortHolderPID > 0 && info.PortHolderOwned && strictTarget(info.PortHolderPID):

@@ -36,18 +36,6 @@ func inspectManagedDoltProcess(cityPath, port string) (managedDoltProcessInspect
 	return inspectManagedDoltProcessWithLayout(layout, port, true), nil
 }
 
-// inspectManagedDoltProcessNoMutation is the strict-stop variant of the
-// process inspector. Unlike ordinary cleanup discovery, it never removes a
-// stale PID-file entry. Ownership handoff must be able to refuse a changed or
-// reused identity without altering runtime evidence on disk.
-func inspectManagedDoltProcessNoMutation(cityPath, port string) (managedDoltProcessInspection, error) {
-	layout, err := resolveCanonicalManagedDoltRuntimeLayout(cityPath)
-	if err != nil {
-		return managedDoltProcessInspection{}, err
-	}
-	return inspectManagedDoltProcessWithLayout(layout, port, false), nil
-}
-
 func inspectManagedDoltProcessWithLayout(layout managedDoltRuntimeLayout, port string, removeStalePIDFile bool) managedDoltProcessInspection {
 	info := managedDoltProcessInspection{}
 	info.ManagedPID, info.ManagedSource = findManagedDoltPIDWithOptions(layout, port, removeStalePIDFile)

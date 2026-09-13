@@ -26,7 +26,7 @@ func setProjectionEligibleSnapshot(t *testing.T, journal *handoffProjectionJourn
 }
 
 func TestCommittedBeadsHandoffOwnsScopeProjection(t *testing.T) {
-	city := handoffTestCity(t)
+	city := handoffGuardTestCity(t)
 	beadsDir := filepath.Join(city, ".beads")
 	if err := os.Mkdir(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestCommittedBeadsHandoffOwnsScopeProjection(t *testing.T) {
 }
 
 func TestCommittedBeadsHandoffRejectsIncompleteCheckpoint(t *testing.T) {
-	city := handoffTestCity(t)
+	city := handoffGuardTestCity(t)
 	if err := os.Mkdir(filepath.Join(city, ".beads"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCommittedBeadsHandoffRejectsIncompleteCheckpoint(t *testing.T) {
 }
 
 func TestCommittedBeadsHandoffRejectsSymlinkedJournal(t *testing.T) {
-	city := handoffTestCity(t)
+	city := handoffGuardTestCity(t)
 	beadsDir := filepath.Join(city, ".beads")
 	if err := os.Mkdir(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestCommittedBeadsHandoffRejectsSymlinkedJournal(t *testing.T) {
 }
 
 func TestRestoredProjectionPreservesAbsentAndModeZeroArtifacts(t *testing.T) {
-	city := handoffTestCity(t)
+	city := handoffGuardTestCity(t)
 	beadsDir := filepath.Join(city, ".beads")
 	if err := os.Mkdir(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestRestoredProjectionPreservesAbsentAndModeZeroArtifacts(t *testing.T) {
 }
 
 func TestCommittedBeadsHandoffProjectionRejectsCorruptIdentityProof(t *testing.T) {
-	city := handoffTestCity(t)
+	city := handoffGuardTestCity(t)
 	beadsDir := filepath.Join(city, ".beads")
 	if err := os.Mkdir(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -204,6 +204,41 @@ func TestCommittedBeadsHandoffProjectionRejectsCorruptIdentityProof(t *testing.T
 			}
 			if _, err := committedBeadsHandoffOwnsScope(city); err == nil {
 				t.Fatal("corrupt committed proof was admitted")
+			}
+		})
+	}
+}
+
+// The sentinel has to bind the identity it is stored beside: a journal whose
+// proof was minted for a different process must not authenticate. gc no longer
+// mints these records, so this is all that keeps the digest honest.
+func TestHandoffIdentityTokenChangesWithProcessIdentity(t *testing.T) {
+	identity := handoffProtocolIdentity{
+		CityRoot: "/city", ScopeRoot: "/city", Database: "beads", Workspace: "test",
+		Endpoint: handoffProtocolEndpoint{Host: "127.0.0.1", Port: 3307}, DataDir: "/city/.beads/dolt", ConfigFile: "/city/.gc/dolt.yaml",
+		PID: 42, StartTimeTicks: 100,
+	}
+	first := handoffIdentityToken(identity)
+	identity.PID = 43
+	if second := handoffIdentityToken(identity); second == first {
+		t.Fatalf("identity token did not change when PID changed: %q", first)
+	}
+}
+
+func TestValidateIdentityTokenValueRejectsMalformedSentinels(t *testing.T) {
+	if err := validateIdentityTokenValue(handoffIdentityToken(handoffProtocolIdentity{PID: 1})); err != nil {
+		t.Fatalf("a well-formed sentinel was rejected: %v", err)
+	}
+	for name, token := range map[string]string{
+		"empty":        "",
+		"unprefixed":   strings.Repeat("a", 64),
+		"short":        "sha256:abcd",
+		"non-hex":      "sha256:" + strings.Repeat("z", 64),
+		"wrong digest": "sha512:" + strings.Repeat("a", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateIdentityTokenValue(token); err == nil {
+				t.Fatalf("malformed sentinel %q was admitted", token)
 			}
 		})
 	}

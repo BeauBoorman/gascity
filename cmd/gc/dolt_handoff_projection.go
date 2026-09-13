@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,63 @@ import (
 	"strings"
 	"syscall"
 )
+
+// The types below are the shape of the legacy-inspect proof a committed
+// ownership-handoff journal embeds. gc no longer mints one — bd never calls gc,
+// so the hidden protocol that produced these records is gone (see
+// engdocs/design/beads-proxied-local-default.md) — but gc still has to
+// recognize a journal bd wrote, so the reader keeps the shape it authenticates.
+const handoffProtocolSchemaVersion = 1
+
+type handoffProtocolEndpoint struct {
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Socket string `json:"socket"`
+}
+
+type handoffProtocolIdentity struct {
+	CityRoot       string                  `json:"city_root"`
+	ScopeRoot      string                  `json:"scope_root"`
+	Database       string                  `json:"database"`
+	Workspace      string                  `json:"workspace"`
+	Endpoint       handoffProtocolEndpoint `json:"endpoint"`
+	DataDir        string                  `json:"data_dir"`
+	ConfigFile     string                  `json:"config_file"`
+	PID            int                     `json:"pid"`
+	StartIdentity  string                  `json:"start_identity"`
+	StartTimeTicks int64                   `json:"start_time_ticks"`
+	PortHolderPID  int                     `json:"port_holder_pid"`
+}
+
+type handoffProtocolResponse struct {
+	SchemaVersion int                     `json:"schema_version"`
+	Operation     string                  `json:"operation"`
+	Result        string                  `json:"result"`
+	Owner         string                  `json:"owner"`
+	Mutates       bool                    `json:"mutates"`
+	Identity      handoffProtocolIdentity `json:"identity"`
+	IdentityToken string                  `json:"identity_token"`
+	ErrorCode     string                  `json:"error_code"`
+}
+
+// handoffIdentityToken is the sentinel a journal carries: the digest of the
+// identity its proof asserts. The digest is taken over the JSON encoding of
+// the struct above, so the shape and the sentinel cannot drift apart.
+func handoffIdentityToken(identity handoffProtocolIdentity) string {
+	b, _ := json.Marshal(identity)
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func validateIdentityTokenValue(token string) error {
+	if len(token) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(token, "sha256:") {
+		return errors.New("identity token must be sha256 encoded")
+	}
+	if _, err := hex.DecodeString(token[len("sha256:"):]); err != nil {
+		return errors.New("identity token is not hexadecimal")
+	}
+	return nil
+}
 
 type handoffProjectionJournal struct {
 	Request struct {
