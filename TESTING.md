@@ -970,6 +970,24 @@ GC_ACCEPTANCE_BD_BIN=... TMPDIR=/data/tmp make test-acceptance \
 Never point `TMPDIR` at tmpfs: these tests start real Dolt servers, and their
 data directories have to survive on a real filesystem.
 
+##### The legacy shapes' one init path
+
+Both legacy fixtures — the matrix's M5 shape and AC-X — initialise through one
+helper, `helpers.LegacyInitEnv`, which adds `BD_ALLOW_REMOTE_MIGRATE=1`: bd's
+documented scripted/CI consent for its shared-store schema gate.
+
+Without it the old-way `gc init` does not reliably complete. gc's bd pack
+pre-creates the city's database and pre-seeds a metadata stub, so its `bd init`
+takes the `--force`/`--reinit-local` arm against an existing empty database —
+and **that arm bounds its schema migration at five seconds**. A full migration
+takes about thirty seconds on a loaded box, so it stops partway and the next
+open is refused by bd's own `#5920` gate with "This workspace was NOT created".
+The bound is why the same binaries were green on an idle box: the whole
+migration used to fit inside it. It reproduces without gc — `bd init --server`
+against a fresh database takes ~30s and reaches the current schema,
+`bd init --server --force` against an empty one is pinned at ~5.5s and does
+not.
+
 #### Resource isolation via gascity-test.slice
 
 On hosts that provision a `gascity-test.slice` systemd user slice (resource

@@ -75,7 +75,10 @@ func legacyGCEnv(t *testing.T, env *helpers.Env, legacyGC string) *helpers.Env {
 	// Index 0 stays the hermetic provider doubles; the legacy gc goes directly
 	// behind them, ahead of the binary under test.
 	path := append([]string{entries[0], linkDir}, entries[1:]...)
-	return env.Clone().
+	// LegacyInitEnv carries the schema-migrate consent the old-way `gc init`
+	// needs; see its doc comment for why. The matrix's M5 shape goes through the
+	// same helper, so both legacy fixtures initialise one way.
+	return helpers.LegacyInitEnv(env).
 		With("PATH", strings.Join(path, string(os.PathListSeparator))).
 		With("GC_ACCEPTANCE_GC_BIN", legacyGC)
 }

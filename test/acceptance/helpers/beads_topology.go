@@ -503,6 +503,40 @@ func LegacyGCBinary() string {
 	return bin
 }
 
+// LegacyInitEnv is the one environment every legacy-shape fixture initializes
+// under — the topology matrix's M5 shape and the AC-X migration.
+//
+// It adds BD_ALLOW_REMOTE_MIGRATE=1, bd's documented scripted/CI consent for its
+// shared-store schema gate, because without it the old-way `gc init` does not
+// reliably complete:
+//
+// gc's bd pack pre-creates the city's Dolt database with CREATE DATABASE and
+// pre-seeds a metadata stub, so the `bd init` it then runs takes the
+// `--force`/`--reinit-local` arm against a database that exists and is empty.
+// That arm bounds its schema migration at five seconds. A full migration to the
+// current schema takes about thirty seconds on a loaded box, so it stops
+// partway (v36 through v46 observed), and the next open sees a half-migrated
+// database and is refused by bd's own #5920 shared-store gate with "This
+// workspace was NOT created".
+//
+// The bound is what makes it look like something changed: the identical
+// binaries were green on an idle box, where the whole migration fits inside the
+// five seconds. It reproduces without gc — `bd init --server` against a fresh
+// database takes ~30s and reaches the current schema, `bd init --server
+// --force` against an empty one is pinned at ~5.5s and does not — and
+// identically on v1.3.0-rc.2 and on the rc.3 candidate.
+//
+// It covers the whole legacy shape, not just the one `gc init` the old binary
+// runs: `gc rig add` under the binary being tested creates the rig's database
+// on the same gc-managed server, through the same pack, and takes the same arm.
+//
+// The consent is honest here: the server is a throwaway one the fixture owns
+// and nothing else talks to, which is the case the variable exists for. It is
+// scoped to the legacy fixtures; nothing else in the matrix sets it.
+func LegacyInitEnv(env *Env) *Env {
+	return env.Clone().With("BD_ALLOW_REMOTE_MIGRATE", "1")
+}
+
 // TopologyEnv is the environment every shape shares: the Tier A harness with a
 // real Dolt-backed bd store instead of the file store, and this run's bd and
 // dolt ahead of any host copies but behind the hermetic provider doubles, which
@@ -536,6 +570,13 @@ func StartTopology(t *testing.T, base *Env, topo BeadsTopology, bdPath, doltPath
 	env := TopologyEnv(t, base, root, bdPath, doltPath)
 	for k, v := range topo.Env {
 		env.With(k, v)
+	}
+
+	if topo.LegacyInit {
+		// The whole shape, not just the legacy init: every scope this shape
+		// creates goes through gc's bd pack against a gc-managed server, and
+		// `gc rig add` runs under the binary being tested. See LegacyInitEnv.
+		env = LegacyInitEnv(env)
 	}
 
 	run := &TopologyRun{Topology: topo, Env: env, Root: root}
