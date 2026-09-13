@@ -5,7 +5,7 @@
 | Bead | `ga-k0jndp` |
 | Source | Architecture follow-up `ga-szsfhn`, item (c) |
 | Scope | External-consumer confirmation only; no Gas City API change |
-| Status | Awaiting confirmation that no private relay consumer exists |
+| Status | Resolved: no current affected consumer identified; risk is hypothetical |
 
 ## Question to settle
 
@@ -20,9 +20,11 @@ The remaining contract question is narrow: does any out-of-repo consumer apply
 
 ## Evidence gathered
 
-- The in-repo dashboard is already ruled out by `ga-szsfhn`: it uses SSE event
-  types only to schedule a coalesced full REST refetch and does not consume
-  `workflow`, `changed_fields`, or `requires_resync`.
+- The in-repo dashboard is ruled out by direct inspection of
+  `internal/api/dashboardspa/web/frontend/src/hooks/useGcEvents.ts`. Its event
+  handler validates only `type`, matches a configured prefix, and schedules a
+  coalesced full REST refetch. It does not read `workflow`, `changed_fields`, or
+  `requires_resync`.
 - The only externally documented candidate, T3 Code, is not a Gas City SSE
   consumer in its public `main` branch at commit
   `20363c32c9bfdbf49c2716ef11d1f18483fcc01b`. Repository-wide code searches
@@ -34,8 +36,21 @@ The remaining contract question is narrow: does any out-of-repo consumer apply
   consumer: `internal/runtime/t3bridge` is a Gas City runtime provider that
   connects to T3 Code's WebSocket API. It does not subscribe to Gas City's SSE
   API or inspect workflow projections.
-- The mayor was asked whether a private relay exists or whether another owner
-  knows of one (mail `gm-wisp-ti6eix`, peek-verified).
+- The mayor confirmed that no private or out-of-repo relay is known and found no
+  `/v0/events/stream` consumer in any pack, script, or service in the city.
+  Sibling repositories `tincan`, `tincan-iris`, `hold-court`, `MCDClient`, and
+  `factory` have no consumer. The only sibling consumer is gascity-packs'
+  slack-pack teardown subscriber, which decodes only event type and payload and
+  deliberately omits workflow projection handling (mail `gm-wisp-84a1pn`).
+
+## Resolution
+
+No current consumer has been identified that applies
+`workflow.changed_fields` incrementally. The omission behavior introduced by PR
+#6219 therefore presents a hypothetical compatibility risk, not a demonstrated
+stale-state defect. No implementation or architecture follow-up is warranted
+without evidence of an affected consumer. A consumer outside this host may
+exist, but the operator does not need to be awaited for this investigation.
 
 ## Outcome matrix
 
