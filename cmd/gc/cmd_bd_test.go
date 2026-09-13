@@ -2427,9 +2427,13 @@ exit 0
 		{"trailing-slash-empty-role", []string{"update", "demo-abc", "--assignee=cairn/"}, true},
 		{"leading-slash-empty-rig-space-form", []string{"update", "demo-abc", "--assignee", "/pm"}, true},
 		{"double-slash-empty-middle-segment", []string{"update", "demo-abc", "--assignee=a//b"}, true},
+		{"short-form-separated", []string{"update", "demo-abc", "-a", "/pm"}, true},
+		{"short-form-inline", []string{"update", "demo-abc", "-a=cairn/"}, true},
 		{"empty-value-clears-assignee", []string{"update", "demo-abc", "--assignee="}, false},
 		{"fully-qualified-value", []string{"update", "demo-abc", "--assignee=cairn/pm"}, false},
 		{"bare-role-no-rig", []string{"update", "demo-abc", "--assignee=deep-investigator"}, false},
+		{"claim-passes-through", []string{"update", "demo-abc", "--claim"}, false},
+		{"non-update-subcommand-forwards", []string{"create", "x", "--assignee=cairn/"}, false},
 	}
 
 	for _, tc := range cases {
@@ -2457,7 +2461,7 @@ exit 0
 			if got != 0 {
 				t.Fatalf("doBd(%v) = %d, want 0 (forwarded); stderr=%q", tc.args, got, stderr.String())
 			}
-			if !strings.Contains(stdout.String(), "demo-abc") {
+			if !strings.Contains(stdout.String(), tc.args[1]) {
 				t.Fatalf("stdout = %q, want forwarded args echoed by fake bd", stdout.String())
 			}
 		})

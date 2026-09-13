@@ -18,10 +18,14 @@ import (
 // non-empty-but-malformed value is refused.
 //
 // Scoped to the "update" subcommand -- the only write path a caller uses to
-// set --assignee on an existing bead through this seam. Runs after the
-// bdMutationWriteIDs guard has already validated the flag shape is
-// unambiguous for "update" (or doBd has already returned 1), so every flag
-// encountered here is a known value-consuming or boolean flag.
+// set --assignee on an existing bead through this seam. Runs before both the
+// by-ID class route and the bdMutationWriteIDs ambiguity check, so that a
+// city which relocates a graph class binding cannot serve the write in
+// process and slip past the guard. That ordering means an unknown flag can
+// still reach this scan: the unknown-flag arm is therefore deliberately
+// conservative -- it never consumes a following token, so it cannot
+// misattribute one flag's value to another. Genuinely ambiguous argv still
+// fails closed downstream in bdMutationWriteIDs.
 func bdAssigneeShapeRefusal(args []string) (string, bool) {
 	if len(args) == 0 || args[0] != "update" {
 		return "", false
@@ -70,9 +74,10 @@ func bdAssigneeShapeRefusal(args []string) (string, bool) {
 			// Known boolean flag (e.g. --claim): no value to inspect.
 			continue
 		}
-		// Unknown flag shape: bdMutationWriteIDs already fails closed on this
-		// before doBd ever reaches this guard, so this arm is unreachable in
-		// practice. Nothing further to check.
+		// Unknown flag shape: deliberately consume nothing, so a following
+		// token is still examined as a flag rather than swallowed as this
+		// flag's value. bdMutationWriteIDs fails closed on the ambiguity
+		// downstream.
 	}
 	return "", false
 }
