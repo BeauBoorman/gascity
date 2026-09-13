@@ -1,15 +1,16 @@
 ---
 title: Migrating a legacy GC-managed city to bd's proxied-server topology
-description: The interim rc.2 procedure for moving an existing gc-owned Dolt city onto a bd-owned proxy, what gc beads city migrate-proxied does, and how to recover.
+description: The supported rc.2 procedure for moving an existing gc-owned Dolt city onto a bd-owned proxy, what gc beads city migrate-proxied does, and how to recover.
 ---
 
 # Migrating a legacy GC-managed city to proxied-server
 
-> **Status:** Interim. This is the explicit, operator-driven path available on
-> beads `v1.3.0-rc.2`. The **journaled ownership handoff (beads #6281)
-> supersedes it** once it ships: that one is crash-safe on both sides and needs
-> no stop window. Until then, this procedure is the supported way to move an
-> existing city, and it is deliberately fail-closed.
+> **Status:** Supported, and on beads `v1.3.0-rc.2` the only one. The journaled
+> ownership handoff is **not available**: it needs phased `bd migrate
+> ownership-handoff` verbs no beads release has yet, and when it lands gc will
+> orchestrate it by calling those verbs — bd never calls gc. Until then this
+> procedure is how an existing city moves, and it is deliberately fail-closed:
+> every scope it will not touch is refused by name.
 >
 > **Companion to:** `engdocs/design/beads-proxied-local-default.md` (what a
 > proxied scope is and who owns its processes).
@@ -61,6 +62,12 @@ Per scope, in order, city first:
    multi-database data dir never was one. This is additive and non-destructive
    — it writes `.dolt/{config.json,noms/,repo_state.json}` beside the existing
    database directories and leaves every byte of them alone.
+
+   It is the **city's** data dir and no other, and only when the city's own
+   database is in there (or the directory is empty, in which case there is
+   nothing to lose). A data dir holding databases but not this city's refuses:
+   the init would succeed, bd would come up on a fresh empty store, and every
+   database beside it would be orphaned without a word from either side.
 4. **Point a shared-root rig at the city's data dir.** A rig whose database
    lives in the city's dir gets a **relative** `dolt_data_dir` (e.g.
    `../../.beads/dolt`) in its `metadata.json`, so bd roots it where its data
@@ -68,7 +75,13 @@ Per scope, in order, city first:
    `dolt_data_dir` when it saves the config, and `bd migrate` saves the config
    partway through the flip. A rig with its own non-empty `.beads/dolt` *and* a
    database in the city's dir refuses — two candidate stores is not gc's
-   ambiguity to resolve silently.
+   ambiguity to resolve silently. So does a rig gc cannot place at all: one
+   whose `.beads/dolt` is not a Dolt repository and whose database is not in
+   the city's dir either. gc does not `dolt init` a rig.
+
+   The classifier reads the `dolt_data_dir` a scope already records, so a rig
+   whose key was written by a run that then failed at `bd migrate` resumes on
+   the next run instead of refusing.
 5. **Run `bd migrate from-server-to-proxied-server --idle-timeout 0`** in the
    scope. `--idle-timeout 0` is bd's `IdleTimeoutNever` and is required: without
    it the proxy and its Dolt child retire after 30s idle and every later command
@@ -77,7 +90,14 @@ Per scope, in order, city first:
    absence of its in-flight journal, then rewrite `.beads/config.yaml` through
    gc's canonical writer. For a proxied scope that state carries no `dolt.mode`
    and no `dolt.host`/`port`/`user`, so gc's pre-migration keys are dropped.
-7. **`bd ping`** the migrated scope and report.
+7. **Retire gc's own publication.** `<scope>/.beads/dolt-server.port`, and for
+   the city `<city>/.gc/runtime/packs/dolt/{dolt-state.json,
+   dolt-provider-state.json,dolt.pid,dolt.lock,dolt-config.yaml,dolt.log}` plus
+   the directory itself when nothing else is in it. All of it describes a
+   server that will not run for this city again, and no lifecycle comes back
+   for it: `clearManagedDoltRuntimeStateUnlessBound` returns early for a scope
+   with a complete bd binding, which is exactly what the migration created.
+8. **`bd ping`** the migrated scope and report.
 
 The command prints a per-scope table (or `--json`) and exits non-zero if any
 scope failed. **Completed scopes stay migrated** — the failure is per scope, not
@@ -175,13 +195,17 @@ database per rig.
 - **Going back.** There is no supported reverse migration on rc.2. Restore the
   city from backup.
 
-## Residue this does not clean
+## Residue
 
-`<city>/.gc/runtime/packs/dolt/{dolt-config.yaml,dolt.lock,dolt.log,
-dolt-provider-state.json}` and `<scope>/.beads/dolt.gate.lock` survive the
-migration. They are inert — nothing reads them for a provider-owned scope — but
-they are the old lifecycle's fingerprints and are safe to delete by hand once
-the city is verified green.
+There is nothing to delete by hand. Everything the old lifecycle published
+about this city — the whole `<city>/.gc/runtime/packs/dolt` publication and
+every scope's `.beads/dolt-server.port` mirror — is retired by the command, on
+the run that migrates the scope and on any later rerun over an already-migrated
+one. Rerunning `gc beads city migrate-proxied` is the documented way to clear a
+city that was migrated by an earlier build and still carries the publication.
+
+`<scope>/.beads/dolt.gate.lock` survives, and should: it is bd's file, under
+bd's directory, and gc does not delete other owners' state.
 
 ## Testing
 

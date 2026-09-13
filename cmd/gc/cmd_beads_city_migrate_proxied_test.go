@@ -62,6 +62,9 @@ func TestMigrateProxiedRefusesWhileManagedDoltStateIsPublished(t *testing.T) {
 func TestMigrateProxiedDryRunWritesNothing(t *testing.T) {
 	city, rigs := newLegacyManagedCityFixture(t, "spike")
 	rig := rigs["spike"]
+	// The legacy layout: every scope's database, the city's included, lives in
+	// the city's multi-database data dir.
+	seedCityDatabaseDir(t, city, "hq")
 	seedCityDatabaseDir(t, city, "sp")
 	stubMigrateProxiedBd(t, func(_, scopeRoot string, args ...string) ([]byte, error) {
 		t.Fatalf("dry run must not run bd: %s %v", scopeRoot, args)
@@ -230,7 +233,11 @@ func TestMigrateProxiedRefusesTypedScopes(t *testing.T) {
 		want    string
 	}{
 		{name: "embedded", mode: "embedded", backend: "dolt", want: "embedded Dolt scope"},
-		{name: "doltlite", mode: "", backend: "doltlite", want: "only a dolt backend"},
+		{name: "doltlite", mode: "", backend: "doltlite", want: "doltlite scope"},
+		// Neither dolt nor doltlite is refused by the metadata loader itself,
+		// which is the only thing standing between a foreign backend and the
+		// migratable arm. It names the backend and says nothing was opened.
+		{name: "foreign backend", mode: "", backend: "sqlite", want: `unsupported backend "sqlite"`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

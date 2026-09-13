@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gastownhall/gascity/internal/beads"
@@ -27,8 +28,9 @@ import (
 // the sidecar, and every refusal here exists because bd cannot see something
 // it needs to.
 //
-// This is the interim rc.2 path. The journaled ownership handoff (beads #6281)
-// supersedes it once it lands; see engdocs/runbooks/beads-migrate-proxied.md.
+// On rc.2 this is the only supported way to migrate a legacy GC-managed city:
+// the journaled ownership handoff needs bd verbs no beads release has yet, and
+// gc ships no driver for it. See engdocs/runbooks/beads-migrate-proxied.md.
 
 const (
 	migrateProxiedStatusMigrated  = "migrated"
@@ -124,9 +126,10 @@ unusable until the server dies.
 
 Each scope is migrated with bd's own ` + "`bd migrate from-server-to-proxied-server`" + `,
 city first. The command is idempotent — an already-proxied scope reports
-"already migrated" — so a partially failed run can simply be rerun.
+"already migrated" — so a partially failed run can simply be rerun. It also
+retires gc's own runtime publication for the city it just handed over.
 
-This is the interim rc.2 path; the journaled ownership handoff supersedes it.
+On rc.2 this is the only supported migration for a legacy GC-managed city.
 Procedure, refusals and recovery: engdocs/runbooks/beads-migrate-proxied.md.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -243,19 +246,29 @@ func migrateProxiedScopeOutcome(cityPath string, scope migrateProxiedScope, opts
 }
 
 func migrateProxiedPlanDetail(scope migrateProxiedScope, classification migrateProxiedClassification) string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 5)
 	if classification.NeedsDoltInit {
-		parts = append(parts, "dolt init "+filepath.Join(scope.Path, ".beads", "dolt"))
+		parts = append(parts, "dolt init "+scopeDoltDataDir(scope.Path))
 	}
 	if scope.SharedRootRel != "" {
 		parts = append(parts, "set metadata dolt_data_dir="+scope.SharedRootRel)
 	}
-	parts = append(parts, "bd migrate from-server-to-proxied-server")
+	parts = append(parts, "bd migrate from-server-to-proxied-server", "rewrite .beads/config.yaml")
+	if scope.IsCity {
+		parts = append(parts, "retire .gc/runtime/packs/dolt")
+	}
+	parts = append(parts, "bd ping")
 	return strings.Join(parts, "; ")
 }
 
 // migrateProxiedScopeNow performs the ordered, non-dry-run work for one scope.
 func migrateProxiedScopeNow(cityPath string, scope migrateProxiedScope, classification migrateProxiedClassification) error {
+	// Fence before the first write of this scope's turn, not just before bd's.
+	// `dolt init` goes into the same data directory a live gc-managed server
+	// holds locked, and the entry check ran an unbounded number of scopes ago.
+	if err := requireNoManagedDoltServer(cityPath); err != nil {
+		return err
+	}
 	if classification.NeedsDoltInit {
 		dataDir := filepath.Join(scope.Path, ".beads", "dolt")
 		if out, err := runDoltInitDataDir(dataDir); err != nil {
@@ -325,6 +338,9 @@ func normalizeMigratedScopeConfig(cityPath string, scope migrateProxiedScope) er
 	if err := normalizeScopeDoltConfig(scope.Path, state); err != nil {
 		return err
 	}
+	if err := retireManagedDoltResidue(cityPath, scope); err != nil {
+		return err
+	}
 	// This process just changed the city's topology. Everything downstream —
 	// the bd ping below, and the next scope's migration, which reads the city's
 	// projection — must see the migrated binding, not the managed-direct answer
@@ -332,6 +348,47 @@ func normalizeMigratedScopeConfig(cityPath string, scope migrateProxiedScope) er
 	// dropping the city outright is one cheap map sweep and does not depend on
 	// every classification input being stamped.
 	forgetProxiedScopeRuntimeEnv(cityPath)
+	return nil
+}
+
+// retireManagedDoltResidue removes the state gc published about a server it
+// will never run for this scope again.
+//
+// AC-X's rule is that gc-side residue is handled by a documented gc command or
+// by the lifecycle, never by hand — and for this residue the lifecycle does not
+// come back for it. clearManagedDoltRuntimeStateUnlessBound returns early for a
+// scope carrying a complete bd storage binding, which is exactly what the
+// migration just created, so the publication describing the dead managed
+// server would sit under .gc forever. The command that created the condition
+// retires it.
+//
+// It is idempotent and best-effort about nothing: a residue file that cannot be
+// removed is reported, because a stale dolt-state.json is also this command's
+// own entry fence and a half-cleared publication would refuse the next run.
+func retireManagedDoltResidue(cityPath string, scope migrateProxiedScope) error {
+	// The port mirror is per scope: gc writes one into every scope it serves
+	// from the managed city server, and a proxied scope has no port to mirror.
+	removeDoltPortFile(scope.Path)
+	if !scope.IsCity {
+		return nil
+	}
+	layout, err := resolveManagedDoltRuntimeLayout(cityPath)
+	if err != nil {
+		return fmt.Errorf("resolve managed dolt runtime layout: %w", err)
+	}
+	for _, path := range []string{
+		managedDoltStatePath(cityPath),
+		layout.StateFile, layout.PIDFile, layout.LockFile, layout.ConfigFile, layout.LogFile,
+	} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("retire managed dolt runtime state %s: %w", path, err)
+		}
+	}
+	// Only when nothing else lives there. The pack state dir is gc's, but it is
+	// not exclusively this pack's publication.
+	if err := os.Remove(layout.PackStateDir); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+		return fmt.Errorf("retire managed dolt pack state dir %s: %w", layout.PackStateDir, err)
+	}
 	return nil
 }
 
@@ -401,8 +458,18 @@ func classifyMigrateProxiedScope(cityPath string, scope migrateProxiedScope) (mi
 		return migrateProxiedClassification{}, fmt.Errorf("%s has no %s; there is no initialized beads store to migrate", scope.Label, metadataPath)
 	}
 	backend := strings.TrimSpace(metadata.Backend)
-	if !contract.IsDoltBackend(backend) {
-		return migrateProxiedClassification{}, fmt.Errorf("%s uses beads backend %q; only a dolt backend has a server topology to migrate", scope.Label, backend)
+	// doltlite is the embedded engine: no server, and so nothing to migrate to
+	// a proxy. gc recognizes one by either metadata field, because a doltlite
+	// scope can leave `backend` at the dolt default and name the engine in
+	// `database` instead (cmd/gc/cmd_bd_store_bridge.go). Asking only about
+	// `backend` let that shape reach the migratable arm, where an empty
+	// dolt_mode reads as the pre-dolt_mode legacy direct server.
+	//
+	// Anything that is neither is refused one frame earlier, by the metadata
+	// loader above: it admits dolt and doltlite and names the backend it
+	// rejected, so there is nothing left here for a third arm to catch.
+	if strings.EqualFold(backend, "doltlite") || strings.EqualFold(strings.TrimSpace(metadata.Database), "doltlite") {
+		return migrateProxiedClassification{}, fmt.Errorf("%s is a doltlite scope; the embedded engine has no server topology to migrate", scope.Label)
 	}
 	mode := strings.ToLower(strings.TrimSpace(metadata.DoltMode))
 	switch mode {
@@ -444,30 +511,93 @@ func classifyMigrateProxiedScope(cityPath string, scope migrateProxiedScope) (mi
 	}
 
 	classification := migrateProxiedClassification{}
-	if scope.SharedRootRel == "" {
-		// This scope migrates against its own data dir, so bd's root validator
-		// has to find a real Dolt repo there. gc's multi-database data dir
-		// never was one.
-		dataDir := filepath.Join(scope.Path, ".beads", "dolt")
-		hasRepo, err := doltRootIsInitialized(dataDir)
-		if err != nil {
+	if scope.SharedRootRel != "" {
+		// The rig migrates against the city's root, which the city's own turn
+		// has already made a repository.
+		return classification, nil
+	}
+	// This scope migrates against the data dir its metadata names, so bd's root
+	// validator has to find a real Dolt repo there. gc's multi-database data dir
+	// never was one.
+	//
+	// Reading the recorded dolt_data_dir rather than assuming <scope>/.beads/dolt
+	// is what makes a partly migrated rig resumable: the key is written before
+	// bd runs, so a rig whose `bd migrate` failed already points at the city's
+	// root and its own .beads/dolt is still the empty directory it always was.
+	dataDir := scopeDoltDataDir(scope.Path)
+	hasRepo, err := doltRootIsInitialized(dataDir)
+	if err != nil {
+		return migrateProxiedClassification{}, err
+	}
+	if hasRepo {
+		return classification, nil
+	}
+	empty, err := dirIsEmptyOrAbsent(dataDir)
+	if err != nil {
+		return migrateProxiedClassification{}, err
+	}
+	if !scope.IsCity {
+		// A rig's databases live in the city's data dir. If gc could not place
+		// this one there, `dolt init` into the rig would migrate it onto a
+		// brand-new empty repository while its real data stayed wherever it is,
+		// and bd would not say a word. The one dolt init this command performs
+		// is the city's.
+		if empty {
+			return migrateProxiedClassification{}, fmt.Errorf("rig %q has an empty %s and no database in the city's data directory; refusing to migrate it onto an empty store", scope.Name, dataDir)
+		}
+		return migrateProxiedClassification{}, fmt.Errorf("rig %q has a store of its own at %s that is not a Dolt repository, and no database in the city's data directory; gc will not initialize a repository over it", scope.Name, dataDir)
+	}
+	if !empty {
+		if err := requireScopeDatabaseInDataDir(scope, dataDir); err != nil {
 			return migrateProxiedClassification{}, err
 		}
-		if !hasRepo {
-			empty, err := dirIsEmptyOrAbsent(dataDir)
-			if err != nil {
-				return migrateProxiedClassification{}, err
-			}
-			if empty && !scope.IsCity {
-				// A rig with an empty data dir and no shared-root plan would
-				// come up on a brand-new empty database while its real data
-				// stayed in the city's dir, and bd would not say a word.
-				return migrateProxiedClassification{}, fmt.Errorf("rig %q has an empty %s and no database in the city's data directory; refusing to migrate it onto an empty store", scope.Name, dataDir)
-			}
-			classification.NeedsDoltInit = true
-		}
 	}
+	classification.NeedsDoltInit = true
 	return classification, nil
+}
+
+// requireScopeDatabaseInDataDir refuses a `dolt init` into a data directory
+// that holds databases but not this scope's.
+//
+// The init is what makes gc's multi-database directory a Dolt root bd will
+// open, and it is safe precisely because the databases beside it are the ones
+// being migrated. A directory holding somebody else's databases and not this
+// scope's is a layout gc cannot explain: the init would succeed, bd would come
+// up on a fresh empty store, and every database in there would be orphaned
+// without a word from either side.
+func requireScopeDatabaseInDataDir(scope migrateProxiedScope, dataDir string) error {
+	database, ok, err := contract.ReadDoltDatabase(fsys.OSFS{}, scopeMetadataJSONPath(scope.Path))
+	if err != nil {
+		return err
+	}
+	database = strings.TrimSpace(database)
+	if !ok || database == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, database, ".dolt")); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return fmt.Errorf("%s records database %q, but %s holds other databases and not that one; refusing to initialize a Dolt root that would orphan them", scope.Label, database, dataDir)
+}
+
+// scopeDoltDataDir is the directory bd will resolve this scope's store from:
+// the metadata's dolt_data_dir when it names one, relative to .beads as beads
+// resolves it, and <scope>/.beads/dolt otherwise.
+func scopeDoltDataDir(scopeRoot string) string {
+	beadsDir := filepath.Join(normalizePathForCompare(scopeRoot), ".beads")
+	recorded, ok, err := contract.ReadMetadataDoltDataDir(fsys.OSFS{}, scopeMetadataJSONPath(scopeRoot))
+	if err != nil || !ok {
+		return filepath.Join(beadsDir, "dolt")
+	}
+	if recorded = strings.TrimSpace(recorded); recorded == "" {
+		return filepath.Join(beadsDir, "dolt")
+	}
+	if filepath.IsAbs(recorded) {
+		return filepath.Clean(recorded)
+	}
+	return filepath.Clean(filepath.Join(beadsDir, recorded))
 }
 
 // planMigrateProxiedScopes orders the work: the city first, because a rig that
