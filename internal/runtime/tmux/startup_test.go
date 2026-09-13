@@ -1145,6 +1145,48 @@ func TestSendStartupNudgeWithRetry_NonRetryableErrorFailsFast(t *testing.T) {
 	}
 }
 
+// TestSendStartupNudgeWithRetry_DeliveredButUnobservedNeverRetried proves the
+// ga-civwyz composition mayor flagged as the interaction to get right: a
+// submit already proven delivered (composer drained) but never observed busy
+// — arriving through the exact same send closure as ErrNudgeSubmitUnconfirmed
+// — must never be retried or re-pasted by the ladder. Retrying would
+// re-inject a message the session already received: the ga-civwyz
+// duplicate-reminder failure mode (up to 5 copies of one reminder, 1201
+// occurrences in 5 days of production logs). Unlike
+// NonRetryableErrorFailsFast's generic stand-in error, this uses the real
+// sentinel so a future change to the ladder's retry allowlist that
+// accidentally widens to include ErrNudgeSubmitDeliveredUnobserved fails
+// here first, not just at the doStartSession call-site level (see
+// TestDoStartSessionReturnsNudgeDeliveryError's "delivered-but-unobserved
+// submit is not fatal" case, which proves the caller's classification but
+// not the ladder's retry decision in isolation).
+func TestSendStartupNudgeWithRetry_DeliveredButUnobservedNeverRetried(t *testing.T) {
+	calls := 0
+	slept := false
+	busyCalls := 0
+	send := func() error {
+		calls++
+		return fmt.Errorf("%w: session %q", ErrNudgeSubmitDeliveredUnobserved, "test")
+	}
+	busy := func() (bool, error) {
+		busyCalls++
+		return false, nil
+	}
+	err := sendStartupNudgeWithRetry(context.Background(), send, func(time.Duration) { slept = true }, busy)
+	if !errors.Is(err, ErrNudgeSubmitDeliveredUnobserved) {
+		t.Fatalf("err = %v, want ErrNudgeSubmitDeliveredUnobserved", err)
+	}
+	if calls != 1 {
+		t.Fatalf("send calls = %d, want 1 (a delivered-but-unobserved submit must never be retried or re-pasted)", calls)
+	}
+	if slept {
+		t.Error("should not sleep for a delivered-but-unobserved submit")
+	}
+	if busyCalls != 0 {
+		t.Fatalf("busy calls = %d, want 0 (a proven-delivered submit fails fast before any busy check)", busyCalls)
+	}
+}
+
 // TestSendStartupNudgeWithRetry_SucceedsImmediatelyNeverSleeps proves the
 // common healthy-boot path incurs zero backoff cost.
 func TestSendStartupNudgeWithRetry_SucceedsImmediatelyNeverSleeps(t *testing.T) {
