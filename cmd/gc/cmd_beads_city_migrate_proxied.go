@@ -359,6 +359,34 @@ type migrateProxiedClassification struct {
 	NeedsDoltInit  bool
 }
 
+// rigMirrorsCityCanonicalEndpoint reports whether a rig's dolt.host/dolt.port
+// are the city's own canonical endpoint rather than an endpoint of its own.
+//
+// The "pins dolt.host" refusal above exists for a scope that tracks a server
+// somewhere else, which is not gc's to migrate. An inherited rig under a
+// canonical city is the opposite case: gc writes that host and port itself,
+// because a rig scope opens through the city's endpoint and bd resolves it from
+// the rig's own config (inheritedRigDoltConfigState). A city handed to bd is
+// canonical, so every one of its rigs acquires the mirror on the next
+// canonicalisation — and the refusal then fired on gc's own bookkeeping,
+// leaving the rig with no supported hop at all.
+//
+// It stays narrow: only an inherited rig, only when both halves match the
+// city's canonical endpoint exactly. A rig that claims anything else is still
+// an external pin and is still refused.
+func rigMirrorsCityCanonicalEndpoint(cityPath string, scope migrateProxiedScope, cfg contract.ConfigState) bool {
+	if scope.IsCity || cfg.EndpointOrigin != contract.EndpointOriginInheritedCity {
+		return false
+	}
+	cityCfg, configured, err := contract.ReadConfigState(fsys.OSFS{}, filepath.Join(cityPath, ".beads", "config.yaml"))
+	if err != nil || !configured || cityCfg.EndpointOrigin != contract.EndpointOriginCityCanonical {
+		return false
+	}
+	host, port := strings.TrimSpace(cfg.DoltHost), strings.TrimSpace(cfg.DoltPort)
+	return host != "" && port != "" &&
+		host == strings.TrimSpace(cityCfg.DoltHost) && port == strings.TrimSpace(cityCfg.DoltPort)
+}
+
 // classifyMigrateProxiedScope decides whether a scope is a legacy GC-managed
 // direct scope this command may migrate. Every refusal is typed and names the
 // reason, because the alternative — guessing — is how a rig ends up pointed at
@@ -410,7 +438,7 @@ func classifyMigrateProxiedScope(cityPath string, scope migrateProxiedScope) (mi
 		default:
 			return migrateProxiedClassification{}, fmt.Errorf("%s tracks an external Dolt endpoint (gc.endpoint_origin %q); migrate it with gc beads city use-managed first, or leave it external", scope.Label, cfg.EndpointOrigin)
 		}
-		if host := strings.TrimSpace(cfg.DoltHost); host != "" {
+		if host := strings.TrimSpace(cfg.DoltHost); host != "" && !rigMirrorsCityCanonicalEndpoint(cityPath, scope, cfg) {
 			return migrateProxiedClassification{}, fmt.Errorf("%s pins dolt.host %q; an external endpoint is not gc's to migrate", scope.Label, host)
 		}
 	}
