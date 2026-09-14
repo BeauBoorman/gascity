@@ -29,6 +29,17 @@ func TestSecretEnvIsAbsentFromProcCmdline(t *testing.T) {
 		t.Skip("no /proc")
 	}
 
+	// Standing in for a different concurrently-running process's own
+	// legitimate, not-yet-cleaned-up staged directory: full-suite parallel
+	// runs put every shard/package in its own process, all sharing this same
+	// os.TempDir(), so a directory that is not this test's must never be
+	// mistaken for one of its leftovers.
+	decoy, err := os.MkdirTemp(os.TempDir(), stagedDirPrefix+"*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(decoy) })
+
 	stamp := time.Now().UnixNano()
 	control := fmt.Sprintf("gc-argv-control-canary-%d", stamp)
 	secret := fmt.Sprintf("gc-argv-secret-canary-%d", stamp)
