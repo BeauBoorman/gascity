@@ -191,7 +191,8 @@ export -f dolt_sql"
 set -euo pipefail
 gc()            { touch '$bd_flag'; printf '{"pruned_count":3}'; }
 record_anomaly(){ touch '$anomaly_flag'; printf '%s\n' "\$*" >> '$anomaly_msg_file'; }
-export -f gc record_anomaly
+get_sql_count() { SQL_COUNT_RESULT=0; }
+export -f gc record_anomaly get_sql_count
 $dolt_stub
 CITY_ABS='$tmpdir'
 CITY_BEADS_DIR='$tmpdir/.beads'
