@@ -132,11 +132,15 @@ func TestExplicitWakeRefusalIsAttributable(t *testing.T) {
 // classifier's vocabulary at once.
 func TestWokenFromSuspendedIsInvisibleToStrandedLane(t *testing.T) {
 	// The exact post-wake record, as produced end-to-end by
-	// TestSuspendThenWakeIsSingleVoiced in internal/session.
+	// TestSuspendThenWakeIsSingleVoiced in internal/session: that test pins
+	// md["slept_at"] != "" on the re-projected bead (ClearWakeBlockersPatch
+	// stamps it whenever it transitions Suspended/Drained -> Asleep), so a
+	// faithful fixture here must carry it too.
 	woken := sessionpkg.Info{
 		ID:            "gm-explicit",
 		MetadataState: "asleep",
 		SleepReason:   "",
+		SleptAt:       time.Now().UTC().Format(time.RFC3339),
 		Template:      "gascity/polecat",
 		SessionName:   "gascity--polecat-1",
 	}
