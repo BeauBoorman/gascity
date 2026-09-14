@@ -1001,11 +1001,15 @@ func TestDoStartSessionReturnsNudgeDeliveryError(t *testing.T) {
 
 	// Same reasoning as above: a submit proven delivered but never observed
 	// busy (composer drained before the confirm budget saw it) must not fail
-	// the start either.
+	// the start either. It also gets the same durable artifact as the
+	// unconfirmed case above — the stderr warning alone vanishes with the
+	// process, and this case never retries (see adapter.go), so the artifact
+	// is the only trace left for a later observer.
 	t.Run("delivered-but-unobserved submit is not fatal", func(t *testing.T) {
 		ops := &fakeStartOps{
-			hasSessionResult: true,
-			sendKeysErr:      fmt.Errorf("%w: session %q", ErrNudgeSubmitDeliveredUnobserved, "test"),
+			hasSessionResult:           true,
+			sendKeysErr:                fmt.Errorf("%w: session %q", ErrNudgeSubmitDeliveredUnobserved, "test"),
+			recordUnconfirmedNudgePath: "/city/.gc/sessions/test/startup-nudge-unconfirmed.log",
 		}
 
 		cfg := runtime.Config{
@@ -1017,7 +1021,10 @@ func TestDoStartSessionReturnsNudgeDeliveryError(t *testing.T) {
 			t.Fatalf("doStartSession = %v, want nil for a delivered-but-unobserved startup nudge", err)
 		}
 
-		assertCallSequence(t, ops, wantCalls)
+		// Exactly one attempt: unlike the unconfirmed case, this ladder never
+		// retries a delivered-but-unobserved submit (refs ga-civwyz).
+		callsByMethod(t, ops, "sendKeys", 1)
+		callsByMethod(t, ops, "recordUnconfirmedNudge", 1)
 	})
 }
 
