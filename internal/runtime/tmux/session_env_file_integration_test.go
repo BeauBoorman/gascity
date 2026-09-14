@@ -40,6 +40,18 @@ func TestSecretEnvIsAbsentFromProcCmdline(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(decoy) })
 
+	// Isolate this test's own staged directories from the decoy above (and
+	// from any other concurrently-running process's legitimate ones) with a
+	// private TMPDIR, the same pattern the sibling unit tests in
+	// session_env_file_test.go already use (TestStageTmuxCommandFileIsPrivateAndRemovable,
+	// TestSweepStaleStagedDirs, TestNewSessionSweepsStaleStagedDirs).
+	// stageTmuxCommandFile and stagedDirs() both resolve os.TempDir() fresh
+	// from $TMPDIR on every call, so this re-scopes both the production
+	// staging and this test's leftover scan to a directory only this test
+	// can write to — the decoy, planted above in the pre-Setenv (real) temp
+	// dir, is no longer visible to either side.
+	t.Setenv("TMPDIR", t.TempDir())
+
 	stamp := time.Now().UnixNano()
 	control := fmt.Sprintf("gc-argv-control-canary-%d", stamp)
 	secret := fmt.Sprintf("gc-argv-secret-canary-%d", stamp)
