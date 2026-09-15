@@ -931,7 +931,7 @@ func TestEnsureCanonicalScopeMetadataRejectsManagedSystemDatabases(t *testing.T)
 	} {
 		t.Run(dbName, func(t *testing.T) {
 			scopePath := t.TempDir()
-			err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scopePath, dbName)
+			err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scopePath, dbName, "proxied-server")
 			if err == nil {
 				t.Fatalf("ensureCanonicalScopeMetadataForInit unexpectedly accepted %s", dbName)
 			}
@@ -7300,7 +7300,7 @@ func TestEnforceCanonicalScopeMetadataForInitRepairsWrongDoltDatabaseFromExplici
 		t.Fatal(err)
 	}
 
-	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity"); err != nil {
+	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity", "proxied-server"); err != nil {
 		t.Fatalf("enforceCanonicalScopeMetadataForInit: %v", err)
 	}
 
@@ -7328,10 +7328,10 @@ func TestEnforceCanonicalScopeMetadataForInitScrubsDeprecatedMetadataEndpointAut
 		t.Fatal(err)
 	}
 
-	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity"); err != nil {
+	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity", "proxied-server"); err != nil {
 		t.Fatalf("enforceCanonicalScopeMetadataForInit: %v", err)
 	}
-	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity"); err != nil {
+	if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, "gascity", "proxied-server"); err != nil {
 		t.Fatalf("second enforceCanonicalScopeMetadataForInit: %v", err)
 	}
 

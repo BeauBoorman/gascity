@@ -3363,8 +3363,33 @@ func setupFreshManagedBdWaitTestCity(t *testing.T) string {
 	t.Setenv("GC_CITY", cityPath)
 	t.Setenv("GC_CITY_PATH", cityPath)
 	materializeBuiltinPacksForTest(t, cityPath)
-	if err := ensureBeadsProvider(cityPath); err != nil {
-		t.Fatalf("ensureBeadsProvider: %v", err)
+	// Record the fresh city as provider-owned before any lifecycle op, exactly
+	// as finalizeInit does at the top of `gc init`. That journal entry is the
+	// only artifact a fresh city has: with it absent, every skip predicate in
+	// ensureBeadsProvider reads a bare directory and selects the legacy managed
+	// lifecycle, which starts a dolt sql-server on <city>/.beads/dolt — the
+	// same directory bd's proxied-server child owns. bd's child then cannot
+	// `dolt init` there ("Detected that a Dolt sql-server is running from this
+	// directory") and dies before publishing its port. This fixture builds its
+	// city by hand rather than through finalizeInit, so it has to do this
+	// itself or it tests a shape production never produces.
+	if err := persistFreshProviderOwnership(cityPath, hostedDoltInitOptions{}); err != nil {
+		t.Fatalf("persistFreshProviderOwnership: %v", err)
+	}
+	// Mirror startBeadsLifecycle's gate: a provider-owned scope is only handed
+	// to the provider's start op once its record is ready. A city journaled
+	// moments ago is still provider_initializing, and starting a provider
+	// against a store that does not exist yet fails with bd's "no beads
+	// database found". initAndHookDir below runs the provider-owned init and
+	// marks the record ready.
+	cityState, cityProviderOwned, err := providerOwnedScopeState(cityPath, cityPath)
+	if err != nil {
+		t.Fatalf("providerOwnedScopeState: %v", err)
+	}
+	if !cityProviderOwned || cityState.State == providerScopeReady {
+		if err := ensureBeadsProvider(cityPath); err != nil {
+			t.Fatalf("ensureBeadsProvider: %v", err)
+		}
 	}
 	t.Cleanup(func() {
 		_ = shutdownBeadsProvider(cityPath)

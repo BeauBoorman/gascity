@@ -106,7 +106,7 @@ func TestConfigYAMLIsNotProxiedAuthority(t *testing.T) {
 	if scopeUsesProxiedDoltMode(city, city) {
 		t.Error("config.yaml promoted a legacy direct scope to the proxied path")
 	}
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, city, "hq"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, city, "hq", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadata: %v", err)
 	}
 	mode, ok, err := contract.ReadDoltMode(fsys.OSFS{}, scopeMetadataJSONPath(city))

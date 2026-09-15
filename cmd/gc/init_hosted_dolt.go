@@ -629,7 +629,10 @@ func applyInitHostedDoltCanonicalConfig(fs fsys.FS, cityPath, issuePrefix string
 	if err := ensureCanonicalScopeConfigState(fs, cityPath, opts.configState(issuePrefix)); err != nil {
 		return fmt.Errorf("writing canonical endpoint config: %w", err)
 	}
-	if err := enforceCanonicalScopeMetadataForInit(fs, cityPath, strings.TrimSpace(opts.Database)); err != nil {
+	// Reached only when opts.enabled(), i.e. an explicit --dolt-host endpoint.
+	// That binding names an upstream someone else runs, so the scope is direct
+	// by construction and never takes the fresh proxied default.
+	if err := enforceCanonicalScopeMetadataForInit(fs, cityPath, strings.TrimSpace(opts.Database), "server"); err != nil {
 		return fmt.Errorf("writing canonical metadata: %w", err)
 	}
 	return nil

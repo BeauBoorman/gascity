@@ -91,7 +91,7 @@ func TestCanonicalizingAnEmbeddedScopeKeepsItsModeAndStaysSilent(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jc")
 	notices := captureStorageModeChanges(t)
 
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestCanonicalizingAnEmbeddedScopeKeepsItsModeAndStaysSilent(t *testing.T) {
 func TestAPreservedEmbeddedScopeNeedsNoRecoveryGuidance(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jc")
 	notices := captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	notice := notices.String()
@@ -169,7 +169,7 @@ func TestAPreservedEmbeddedScopeNeedsNoRecoveryGuidance(t *testing.T) {
 func TestNoDoorFlipsAnEmbeddedScopesStorageMode(t *testing.T) {
 	for name, canonicalize := range map[string]func(scope string) error{
 		"init path": func(scope string) error {
-			return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc")
+			return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server")
 		},
 		"endpoint path, named scope": func(scope string) error {
 			return requireCanonicalizedScopeMetadata(fsys.OSFS{}, scope)
@@ -207,7 +207,7 @@ func TestCanonicalizingAnAlreadyCanonicalScopeIsSilent(t *testing.T) {
 			writeScopeMetadata(t, scope, meta)
 			notices := captureStorageModeChanges(t)
 
-			if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+			if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 				t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 			}
 			if notices.Len() != 0 {
@@ -226,7 +226,7 @@ func TestCanonicalizingAnAlreadyCanonicalScopeIsSilent(t *testing.T) {
 func TestPreservingTheStorageModeNeverChangesWhatAReadAnswers(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jc")
 	captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	if mode := readScopeDoltMode(t, scope); mode != "embedded" {
@@ -282,7 +282,7 @@ func TestPreservingTheStorageModeNeverChangesWhatAReadAnswers(t *testing.T) {
 func TestAnEmptyReadIsNotEvidenceTheScopeIsReadingTheWrongDatabase(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jc")
 	captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	answering := func(_, _ string, args ...string) ([]byte, error) {
@@ -335,7 +335,7 @@ func TestAnEmptyReadIsNotEvidenceTheScopeIsReadingTheWrongDatabase(t *testing.T)
 func TestAdoptingAFreshlyInitializedWorkspaceStillReads(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jkq") // `bd init -p jkq`: empty repo, embedded mode
 	notices := captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jkq"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jkq", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	if notices.Len() != 0 {
@@ -369,7 +369,7 @@ func TestTheStorageModeAnnouncementIsNotSplitStoreSpecific(t *testing.T) {
 	}
 
 	notices := captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "hq"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "hq", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	if notices.Len() != 0 {
@@ -386,7 +386,7 @@ func TestTheStorageModeAnnouncementIsNotSplitStoreSpecific(t *testing.T) {
 func TestTheThreeMessagesAboutOneUnreadDatabaseAgree(t *testing.T) {
 	scope := embeddedScopeWithBeads(t, "jc")
 	announcement := captureStorageModeChanges(t)
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	var readNotice bytes.Buffer

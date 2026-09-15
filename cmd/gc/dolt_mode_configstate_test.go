@@ -111,7 +111,7 @@ func TestCanonicalBdScopeInitPersistsDefaultDoltMode(t *testing.T) {
 	if err := ensureCanonicalScopeConfigState(fsys.OSFS{}, cityPath, state); err != nil {
 		t.Fatalf("ensureCanonicalScopeConfigState: %v", err)
 	}
-	if err := ensureCanonicalScopeMetadata(fsys.OSFS{}, cityPath, "hq", false); err != nil {
+	if err := ensureCanonicalScopeMetadata(fsys.OSFS{}, cityPath, "hq", freshScopeCanonicalDoltMode(cityPath), false); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadata: %v", err)
 	}
 	mode, ok, err := contract.ReadDoltMode(fsys.OSFS{}, filepath.Join(cityPath, ".beads", "metadata.json"))
@@ -177,7 +177,7 @@ func TestEnsureCanonicalScopeMetadataPreservesMissingDoltModeAsDirect(t *testing
 	if err := os.WriteFile(metadataPath, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err != nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err != nil {
 		t.Fatalf("ensureCanonicalScopeMetadataForInit: %v", err)
 	}
 	mode, ok, err := contract.ReadDoltMode(fsys.OSFS{}, metadataPath)
@@ -196,7 +196,7 @@ func TestEnsureCanonicalScopeMetadataRejectsUnknownPersistedDoltMode(t *testing.
 	if err := os.WriteFile(metadataPath, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc"); err == nil {
+	if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, scope, "jc", "proxied-server"); err == nil {
 		t.Fatal("ensureCanonicalScopeMetadataForInit accepted unknown persisted dolt_mode")
 	}
 	got, err := os.ReadFile(metadataPath)

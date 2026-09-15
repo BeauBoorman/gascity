@@ -705,7 +705,7 @@ func seedDeferredManagedBeadsErr(cityPath, dir, prefix, doltDatabase string) err
 	if strings.TrimSpace(doltDatabase) == "" {
 		doltDatabase = readDeferredManagedDoltDatabase(filepath.Join(dir, ".beads", "metadata.json"), defaultScopeDoltDatabase(cityPath, dir, prefix))
 	}
-	return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase)
+	return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase, defaultFreshScopeDoltMode)
 }
 
 func readDeferredManagedDoltDatabase(path, fallback string) string {
@@ -783,9 +783,9 @@ func normalizeCanonicalBdScopeFilesForInit(cityPath, dir, prefix, doltDatabase s
 		// Preserve legacy probe metadata during startup normalization so old
 		// scopes can still boot and migrate deliberately. New init paths still
 		// reject this reserved name when it is not already pinned in metadata.
-		return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase)
+		return ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase, preInitScopeDoltMode(cityPath, dir))
 	}
-	return enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase)
+	return enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase, preInitScopeDoltMode(cityPath, dir))
 }
 
 // initAndHookDir is the atomic unit of bead store initialization:
@@ -1294,6 +1294,15 @@ func runProviderOwnedScopeInit(cityPath, dir, prefix, script string) (bool, erro
 		if database == "" && entry.Intent.Target == "external" {
 			database = strings.TrimSpace(os.Getenv(envDoltDatabase))
 		}
+		if database == "" && entry.Intent.Target == "local" {
+			// Provider ownership changes who runs the server, not what the
+			// scope is called. Without this bd falls back to naming the
+			// database after the bead prefix, so a city initialized through
+			// the provider-owned path got "<prefix>" while the legacy path
+			// gave it the canonical "hq" — the same city with two different
+			// database names depending on how it was created.
+			database = canonicalScopeDoltDatabase(cityPath, dir, prefix)
+		}
 	}
 	if database != "" {
 		args = append(args, database)
@@ -1797,10 +1806,10 @@ func finalizeCanonicalBdScopeInit(cityPath, dir, prefix, doltDatabase string) er
 		doltDatabase = defaultScopeDoltDatabase(cityPath, dir, prefix)
 	}
 	if isReservedManagedDoltDatabase(doltDatabase) {
-		if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase); err != nil {
+		if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase, defaultFreshScopeDoltMode); err != nil {
 			return err
 		}
-	} else if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase); err != nil {
+	} else if err := enforceCanonicalScopeMetadataForInit(fsys.OSFS{}, dir, doltDatabase, defaultFreshScopeDoltMode); err != nil {
 		return err
 	}
 	// In proxied-server mode bd init owns the UOW, proxy, and child Dolt
@@ -2404,15 +2413,20 @@ func isLegacyManagedDoltProbeDatabase(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), managedDoltProbeDatabase)
 }
 
-func ensureCanonicalScopeMetadata(fs fsys.FS, scopeRoot, doltDatabase string, preserveExisting bool) error {
+func ensureCanonicalScopeMetadata(fs fsys.FS, scopeRoot, doltDatabase, freshDoltMode string, preserveExisting bool) error {
 	path := filepath.Join(scopeRoot, ".beads", "metadata.json")
 	preserveReservedExisting := false
 	metadataModeAuthoritative := false
-	// A scope with no metadata is a fresh initialization and uses Beads'
-	// proxied-local UOW path. Existing metadata is treated as a legacy/direct
-	// contract unless it explicitly identifies a Dolt mode; this avoids
-	// silently converting old workspaces while still making new installs
-	// proxied by default.
+	// A scope with no metadata is a fresh initialization and takes the mode the
+	// caller resolved for it — callers hold the cityPath this function does
+	// not, and the fresh-scope default is a decision only they can make. A
+	// hardcoded proxied-server default here wrote a proxied marker over scopes
+	// scopeUsesProxiedDoltMode had just classified as direct, and because that
+	// marker is itself what makes a scope provider-owned, the scope became
+	// permanently unusable: owned by a proxied store that was never created.
+	// Existing metadata is still treated as a legacy/direct contract unless it
+	// explicitly identifies a Dolt mode, so old workspaces are never silently
+	// converted.
 	metadataExists := false
 	metadataBackend := ""
 	if _, err := fs.Stat(path); err == nil {
@@ -2426,7 +2440,10 @@ func ensureCanonicalScopeMetadata(fs fsys.FS, scopeRoot, doltDatabase string, pr
 			}
 		}
 	}
-	doltMode := "proxied-server"
+	doltMode := freshDoltMode
+	if strings.TrimSpace(doltMode) == "" {
+		doltMode = "proxied-server"
+	}
 	if metadataExists && (metadataBackend == "legacy" || metadataBackend == "dolt") {
 		doltMode = "server"
 	}
@@ -2624,8 +2641,8 @@ func ensureCanonicalDoltliteScopeMetadata(fs fsys.FS, scopeRoot, doltDatabase st
 }
 
 //nolint:unparam // keep fs seam for future testable FS injection
-func ensureCanonicalScopeMetadataForInit(fs fsys.FS, scopeRoot, doltDatabase string) error {
-	return ensureCanonicalScopeMetadata(fs, scopeRoot, doltDatabase, true)
+func ensureCanonicalScopeMetadataForInit(fs fsys.FS, scopeRoot, doltDatabase, freshDoltMode string) error {
+	return ensureCanonicalScopeMetadata(fs, scopeRoot, doltDatabase, freshDoltMode, true)
 }
 
 //nolint:unparam // keep fs seam for future testable FS injection
@@ -2634,8 +2651,32 @@ func ensureCanonicalDoltliteScopeMetadataForInit(fs fsys.FS, scopeRoot, doltData
 }
 
 //nolint:unparam // keep fs seam for future testable FS injection
-func enforceCanonicalScopeMetadataForInit(fs fsys.FS, scopeRoot, doltDatabase string) error {
-	return ensureCanonicalScopeMetadata(fs, scopeRoot, doltDatabase, false)
+func enforceCanonicalScopeMetadataForInit(fs fsys.FS, scopeRoot, doltDatabase, freshDoltMode string) error {
+	return ensureCanonicalScopeMetadata(fs, scopeRoot, doltDatabase, freshDoltMode, false)
+}
+
+// defaultFreshScopeDoltMode is the mode a genuinely fresh scope is initialized
+// into: bd's proxied-local UOW. Callers that run after bd init, or that are
+// themselves the init, pass this — the store they just created is proxied, so
+// the marker they write is a true statement about it.
+const defaultFreshScopeDoltMode = "proxied-server"
+
+// preInitScopeDoltMode reports the dolt_mode startup normalization may stamp
+// on a scope that has no metadata yet and no store behind it.
+//
+// Normalization runs BEFORE init, so it cannot assume the fresh proxied
+// default: for a scope scopeUsesProxiedDoltMode classifies as direct — an
+// unjournaled city grandfathered off the proxied default, say — a proxied
+// marker is a false statement about a store that does not exist. It is also a
+// self-inflicted trap, because that same marker is what makes a scope
+// provider-owned: the next lifecycle op then demands a proxied store nobody
+// ever created and the scope is refused for good. Deferring to the classifier
+// keeps what gc writes and what gc reads in agreement.
+func preInitScopeDoltMode(cityPath, dir string) string {
+	if scopeUsesProxiedDoltMode(cityPath, dir) {
+		return defaultFreshScopeDoltMode
+	}
+	return "server"
 }
 
 // normalizeCanonicalBdScopeFiles reconciles canonical bd metadata/config/port
@@ -2668,7 +2709,7 @@ func normalizeCanonicalBdScopeFiles(cityPath string, cfg *config.City, warns ...
 				if err := ensureCanonicalDoltliteScopeMetadataForInit(fsys.OSFS{}, cityPath, doltDatabase); err != nil {
 					return fmt.Errorf("canonicalizing city doltlite metadata: %w", err)
 				}
-			} else if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, doltDatabase); err != nil {
+			} else if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, cityPath, doltDatabase, defaultFreshScopeDoltMode); err != nil {
 				return fmt.Errorf("canonicalizing city metadata: %w", err)
 			}
 		}
@@ -2692,7 +2733,7 @@ func normalizeCanonicalBdScopeFiles(cityPath string, cfg *config.City, warns ...
 				if err := ensureCanonicalDoltliteScopeMetadataForInit(fsys.OSFS{}, cfg.Rigs[i].Path, doltDatabase); err != nil {
 					return fmt.Errorf("canonicalizing rig %q doltlite metadata: %w", cfg.Rigs[i].Name, err)
 				}
-			} else if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, cfg.Rigs[i].Path, doltDatabase); err != nil {
+			} else if err := ensureCanonicalScopeMetadataForInit(fsys.OSFS{}, cfg.Rigs[i].Path, doltDatabase, defaultFreshScopeDoltMode); err != nil {
 				return fmt.Errorf("canonicalizing rig %q metadata: %w", cfg.Rigs[i].Name, err)
 			}
 		}
