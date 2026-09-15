@@ -121,6 +121,13 @@ func doBd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	if os.Getenv(assigneeGateEscapeEnv) == "" {
+		if err := checkBdAssigneeArgs(cfg, bdArgs, stderr); err != nil {
+			fmt.Fprintf(stderr, "gc bd: %v\n", err) //nolint:errcheck // best-effort stderr
+			return 1
+		}
+	}
+
 	warnExternalBdOverrideDrift(stderr, cityPath, target)
 
 	bdPath, err := exec.LookPath("bd")

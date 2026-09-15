@@ -137,6 +137,7 @@ func doDoctor(fix, verbose bool, stdout, stderr io.Writer) int {
 	// Load config for deeper checks. If it fails, we still run the core
 	// checks above (which will report the parse error).
 	cfg, cfgErr := loadCityConfig(cityPath, stderr)
+	d.Register(newConfigLoadCheck(cfgErr))
 	if cfgErr == nil {
 		resolveRigPaths(cityPath, cfg.Rigs)
 		if workspaceUsesManagedBdStoreContract(cityPath, cfg.Rigs) {
@@ -203,6 +204,7 @@ func doDoctor(fix, verbose bool, stdout, stderr io.Writer) int {
 		d.Register(doctor.NewBDSplitStoreCheck(cityPath))
 		d.Register(doctor.NewBeadsStoreCheck(cityPath, storeFactory))
 		d.Register(newV2RoutedToNamespaceCheck(cfg, cityPath, storeFactory))
+		d.Register(newAssigneeResolvesCheck(cfg, cityPath, storeFactory))
 		d.Register(&sessionModelDoctorCheck{cfg: cfg, cityPath: cityPath, newStore: storeFactory})
 	}
 	skipCityDoltCheck := os.Getenv("GC_DOLT") == "skip" || (!scopeUsesManagedBdStoreContract(cityPath, cityPath) && !workspaceNeedsCityDoltCheck(cityPath, cfg))
