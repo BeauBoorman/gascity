@@ -366,6 +366,15 @@ const (
 	// emission is wired in stage 3 — nothing emits it yet.
 	BeadsConditionalWritesDegraded = "beads.conditional_writes.degraded"
 
+	// RoutedDemandStranded fires when a gc.routed_to demand target (a ready
+	// work bead or an order-dispatch pool-demand wisp) resolves to a template
+	// no session can ever wake for — a dead/misspelled route, or an agent
+	// whose effective min_active_sessions is 0 with zero sessions currently
+	// open. Gated by the demand.stranded_route_policy rollout gate: Auto
+	// emits with severity=warning and never blocks; Require emits with
+	// severity=failure and also fails the owning order run.
+	RoutedDemandStranded = "routed_demand.stranded"
+
 	// Storage-class binding outcomes. Emitted once per controller boot by the
 	// storage gate, and once per run by `gc storage migrate`, for a city whose
 	// [storage.classes] relocate the infrastructure classes to a binding.
@@ -446,6 +455,7 @@ var KnownEventTypes = []string{
 	BackendCredentialResolved,
 	EmergencySignaled, EmergencyAcked,
 	BeadsConditionalWritesDegraded,
+	RoutedDemandStranded,
 	StorageBindingConverged, StorageBindingGenesis,
 	StorageBindingUnconverged, StorageBindingUncheckable,
 	StorageBindingNotConfigured,
