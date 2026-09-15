@@ -206,7 +206,12 @@ func TestDoDoctorSkipsImportStateCheckWhenCityConfigInvalid(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	_ = doDoctor(false, true, &stdout, &stderr)
 	out := stdout.String() + stderr.String()
-	if strings.Contains(out, "packv2-import-state") {
+	// Match the rendered check row, not any mention of the name: other checks
+	// legitimately name packv2-import-state in their remediation hints, and a
+	// bare substring match turns that prose into a false failure. The real
+	// invariant (the check must not execute) is enforced by the
+	// checkInstalledImports stub above, which fails the test if it is called.
+	if strings.Contains(out, "packv2-import-state \u2014 ") {
 		t.Fatalf("doctor output included import state check for invalid config:\n%s", out)
 	}
 	if !strings.Contains(out, "city-config") {
