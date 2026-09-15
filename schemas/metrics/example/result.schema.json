@@ -213,6 +213,10 @@
               "ready",
               "storage-recover-stranded",
               "beads-metadata-cas",
+              "worktree-cleanup",
+              "worktree-ensure",
+              "worktree-verify",
+              "storage-preflight",
               "extmsg-reply"
             ]
           },
