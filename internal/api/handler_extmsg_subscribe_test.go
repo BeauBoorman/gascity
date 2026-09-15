@@ -151,7 +151,7 @@ func TestSubscribeHandler_ValidTokenStreamsMessages(t *testing.T) {
 	}()
 
 	// Wait for the LLMClientAdapter to register in the shared AdapterRegistry.
-	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID}
+	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID, ConversationID: convRef.ConversationID}
 	deadline := time.Now().Add(time.Second)
 	var adapter extmsg.TransportAdapter
 	for time.Now().Before(deadline) {
@@ -295,7 +295,7 @@ func TestSubscribeHandler_ForbiddenSessionAtStreamTimeDisconnects(t *testing.T) 
 }
 
 func TestSubscribeHandler_AdapterUnregisteredOnDisconnect(t *testing.T) {
-	fs, srv, clientID, token, _ := newExtMsgSubscribeFixture(t)
+	fs, srv, clientID, token, convRef := newExtMsgSubscribeFixture(t)
 	fs.cfg.ExtMsg.ConnectedClients.HeartbeatInterval = "10s"
 	h := newTestCityHandlerWith(t, fs, srv)
 
@@ -313,13 +313,18 @@ func TestSubscribeHandler_AdapterUnregisteredOnDisconnect(t *testing.T) {
 	}()
 
 	// Wait for adapter to appear.
-	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID}
+	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID, ConversationID: convRef.ConversationID}
 	deadline := time.Now().Add(time.Second)
+	registered := false
 	for time.Now().Before(deadline) {
 		if fs.adapterReg.Lookup(adapterKey) != nil {
+			registered = true
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	if !registered {
+		t.Fatal("LLMClientAdapter not registered after 1s")
 	}
 
 	// Cancel the request (simulate client disconnect).
@@ -329,6 +334,89 @@ func TestSubscribeHandler_AdapterUnregisteredOnDisconnect(t *testing.T) {
 	// Adapter must be unregistered after disconnect.
 	if fs.adapterReg.Lookup(adapterKey) != nil {
 		t.Error("LLMClientAdapter still registered after disconnect")
+	}
+}
+
+// TestSubscribeHandler_ConcurrentSubscribesForDifferentConversationsDoNotClobber
+// is the end-to-end regression test for the AdapterKey clobber bug: two
+// concurrent subscribe connections for the same client_id but different
+// conversation_ids must register distinct adapters in the shared
+// AdapterRegistry, and disconnecting one must not evict the other's
+// still-live adapter.
+func TestSubscribeHandler_ConcurrentSubscribesForDifferentConversationsDoNotClobber(t *testing.T) {
+	fs, srv, clientID, token, convRefA := newExtMsgSubscribeFixture(t)
+	fs.cfg.ExtMsg.ConnectedClients.HeartbeatInterval = "10s"
+	h := newTestCityHandlerWith(t, fs, srv)
+
+	convIDB := "test-conv-2"
+	convRefB := convRefA
+	convRefB.ConversationID = convIDB
+
+	ctxA, cancelA := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelA()
+	ctxB, cancelB := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelB()
+
+	reqA := httptest.NewRequest("GET", subscribeURL(fs, clientID, convRefA.ConversationID), nil).WithContext(ctxA)
+	reqA.Header.Set("X-GC-Client-Token", token)
+	recA := httptest.NewRecorder()
+
+	reqB := httptest.NewRequest("GET", subscribeURL(fs, clientID, convIDB), nil).WithContext(ctxB)
+	reqB.Header.Set("X-GC-Client-Token", token)
+	recB := httptest.NewRecorder()
+
+	doneA := make(chan struct{})
+	doneB := make(chan struct{})
+	go func() { h.ServeHTTP(recA, reqA); close(doneA) }()
+	go func() { h.ServeHTTP(recB, reqB); close(doneB) }()
+
+	keyA := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID, ConversationID: convRefA.ConversationID}
+	keyB := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: clientID, ConversationID: convIDB}
+
+	var adapterA, adapterB extmsg.TransportAdapter
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		adapterA = fs.adapterReg.Lookup(keyA)
+		adapterB = fs.adapterReg.Lookup(keyB)
+		if adapterA != nil && adapterB != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if adapterA == nil {
+		t.Fatal("adapter for conversation A not registered after 1s")
+	}
+	if adapterB == nil {
+		t.Fatal("adapter for conversation B not registered after 1s")
+	}
+	if adapterA == adapterB {
+		t.Fatal("both conversations resolved to the same adapter instance — registration collided")
+	}
+
+	// Disconnect A first while B is still live. A's deferred Unregister must
+	// not evict B's still-live adapter (the reported clobber).
+	cancelA()
+	<-doneA
+
+	if fs.adapterReg.Lookup(keyB) == nil {
+		t.Fatal("adapter for conversation B was evicted by conversation A's disconnect")
+	}
+
+	if _, err := adapterB.Publish(context.Background(), extmsg.PublishRequest{
+		SessionID:    "test-session-b",
+		Conversation: convRefB,
+		Text:         "hello-b-after-a-disconnected",
+	}); err != nil {
+		t.Fatalf("adapterB.Publish after A disconnected: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	cancelB()
+	<-doneB
+
+	bodyB := recB.Body.String()
+	if !strings.Contains(bodyB, "hello-b-after-a-disconnected") {
+		t.Errorf("conversation B stream missing its message after A disconnected; body: %s", bodyB)
 	}
 }
 

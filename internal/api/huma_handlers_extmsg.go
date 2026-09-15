@@ -750,10 +750,16 @@ func (s *Server) streamExtmsgSubscribe(hctx huma.Context, input *ExtMsgSubscribe
 	eventChan, cancelSub := registry.Subscribe(state.convRef, state.bufferSize)
 	defer cancelSub()
 
-	// Step b: Register an LLMClientAdapter keyed by ("llm-client", client_id);
-	// the SubscriberRegistry above bridges it to the event channel.
+	// Step b: Register an LLMClientAdapter keyed by ("llm-client", client_id,
+	// conversation_id); the SubscriberRegistry above bridges it to the event
+	// channel. ConversationID must be included here: this adapter is scoped
+	// to exactly one conversation (state.convRef), so two concurrent
+	// subscribes for the same client_id but different conversations would
+	// otherwise collide on the same map entry and clobber each other's
+	// registration (and each other's deferred Unregister would evict the
+	// other connection's live adapter).
 	adapter := extmsg.NewLLMClientAdapter(state.clientID, registry)
-	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: state.clientID}
+	adapterKey := extmsg.AdapterKey{Provider: extmsg.ProviderLLMClient, AccountID: state.clientID, ConversationID: state.convRef.ConversationID}
 	reg.Register(adapterKey, adapter)
 	defer reg.Unregister(adapterKey)
 
