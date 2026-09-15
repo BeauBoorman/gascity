@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gastownhall/gascity/internal/agentutil"
 	"github.com/gastownhall/gascity/internal/api"
 	"github.com/gastownhall/gascity/internal/beadmeta"
 	"github.com/gastownhall/gascity/internal/beads"
@@ -122,8 +123,8 @@ func detectStrandedRoutedDemand(store beads.Store, cfg *config.City, sessionBead
 		if len(signal.beads) == 0 {
 			continue // every bead in this group already emitted+escalated; stay silent
 		}
-		beadIDs := make([]string, 0, len(group))
-		for _, b := range group {
+		beadIDs := make([]string, 0, len(signal.beads))
+		for _, b := range signal.beads {
 			beadIDs = append(beadIDs, b.ID)
 		}
 		rec.Record(events.Event{
@@ -257,19 +258,43 @@ func strandedRoutedDemandCandidates(store beads.Store) ([]beads.Bead, error) {
 
 // routedTemplateIsUnwakeable reports whether template names an agent no
 // session can currently wake for: the template resolves to no configured
-// agent (dead/misspelled route), or its effective min_active_sessions is 0
-// and no session is presently open for it.
+// agent (dead/misspelled route), the agent is suspended, or the agent
+// cannot support a generic ephemeral session to service the route — and no
+// session is presently open for it.
 func routedTemplateIsUnwakeable(cfg *config.City, sessionBeads *sessionBeadSnapshot, template string) bool {
 	if sessionBeads != nil {
 		if _, ok := sessionBeads.FindInfoByTemplate(template); ok {
 			return false
 		}
+		for _, info := range sessionBeads.OpenInfos() {
+			if isPoolManagedSessionInfo(info) && info.Template == template {
+				return false
+			}
+		}
 	}
-	agent, ok := findAgentByName(cfg, template)
+	agent, ok := findAgentByRoutedIdentity(cfg, template)
 	if !ok {
 		return true
 	}
-	return agent.EffectiveMinActiveSessions() == 0
+	if agent.Suspended {
+		return true
+	}
+	return !agent.SupportsGenericEphemeralSessions()
+}
+
+// findAgentByRoutedIdentity resolves template against each configured
+// agent's own agentutil.RoutedToIdentity — the same canonical identity a
+// route is stamped with (Dir-qualified, BindingName-qualified, or
+// PoolName form) — rather than bare Agent.Name. template is always a
+// previously canonicalized RoutedToIdentity output, so an exact match is
+// the correct (and only correct) comparison here.
+func findAgentByRoutedIdentity(cfg *config.City, template string) (config.Agent, bool) {
+	for _, a := range cfg.Agents {
+		if agentutil.RoutedToIdentity(&a) == template {
+			return a, true
+		}
+	}
+	return config.Agent{}, false
 }
 
 // formatRoutedDemandStrandedMessage renders the operator-facing text for a

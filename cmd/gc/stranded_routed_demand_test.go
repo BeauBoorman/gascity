@@ -472,7 +472,7 @@ func TestDetectStrandedRoutedDemandClearsMarkersOnRecovery(t *testing.T) {
 		t.Fatalf("bead %s missing first-seen marker after stranded detection", bead.ID)
 	}
 
-	wakeableCfg := deadAssigneeDemandConfig(1) // min_active_sessions=1: template is wakeable again
+	wakeableCfg := deadAssigneeDemandConfig(1) // max_active_sessions=1: agent supports a generic ephemeral session again
 	setDemandConfigString(t, wakeableCfg, "StrandedRoutePolicy", "auto")
 	t2 := t1.Add(time.Minute)
 	if err := detectStrandedRoutedDemand(store, wakeableCfg, newSessionBeadSnapshot(nil), rec, io.Discard, t2); err != nil {
@@ -552,13 +552,11 @@ func TestDetectStrandedRoutedDemandEmitsOnlyThrottledBeadIDs(t *testing.T) {
 	}
 }
 
-func deadAssigneeDemandConfig(minSessions int) *config.City {
-	maxSessions := 1
+func deadAssigneeDemandConfig(maxSessions int) *config.City {
 	return &config.City{
 		Agents: []config.Agent{{
 			Name:              "worker",
 			MaxActiveSessions: &maxSessions,
-			MinActiveSessions: &minSessions,
 			Provider:          "mock",
 			StartCommand:      "true",
 		}},
