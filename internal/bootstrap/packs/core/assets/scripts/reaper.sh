@@ -1362,6 +1362,26 @@ EOF
             record_anomaly "$SESSION_PRUNE_ANOMALY_SCOPE" "bulk prune skipped: backup stale or absent ($_PRUNE_SKIP_REASON threshold=${_PRUNE_MAX_AGE}s)"
         fi
 
+        # Pattern-validity gate: SESSION_BEAD_PATTERN is spliced directly
+        # into a SQL LIKE literal below (type-scope gate) and passed as bd's
+        # own --pattern flag further down. A value outside this charset
+        # (e.g. a single quote) would corrupt the guard's own COUNT query --
+        # id LIKE 'x' OR '1'='1' always matches, silently defeating the very
+        # guard it is supposed to be. Fail closed: reject before any SQL is
+        # built, matching the backup-age gate above. Inlined (not a shared
+        # helper like valid_database_identifier) because every per-file test
+        # harness in test/ extracts only this Step 6 block via awk, and a
+        # call to a helper defined outside that boundary would resolve to
+        # nothing in those harnesses.
+        if [ "$_PRUNE_SKIP" -eq 0 ]; then
+            case "$SESSION_BEAD_PATTERN" in
+                ''|*[!A-Za-z0-9_.*?-]*)
+                    record_anomaly "$SESSION_PRUNE_ANOMALY_SCOPE" "bulk prune skipped: SESSION_BEAD_PATTERN='$SESSION_BEAD_PATTERN' contains characters outside the allowed pattern charset (letters, digits, . _ - * ?); refusing to build SQL from it (type scope guard)"
+                    _PRUNE_SKIP=1
+                    ;;
+            esac
+        fi
+
         # Type-scope gate: bd's prune SweepRequest has no issue_type filter
         # (only ID glob + age), so a pattern like the default gm-* would
         # delete any closed, non-session bead sharing that ID prefix. Cheap
