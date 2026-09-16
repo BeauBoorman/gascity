@@ -26,7 +26,7 @@ const (
 	// --proxied-server, so each test skipped and a suite that ran nothing
 	// reported green. The new job builds bd from BD_CURRENT_REF and sets
 	// GC_REQUIRE_ACCEPTANCE_TOOLING so a runner without that bd fails instead.
-	expectedCIExecutionHash      = "cef60ab26ca1c491e7b7d62c52baf0c91ba8d869139a046024db4ce9c23e1836"
+	expectedCIExecutionHash      = "928e64138e15e811cafdf13dd3c033d39d0649b3db915e9332fc07afcbe6c936"
 	expectedNightlyTriggersHash  = "0a4400a09ac567e90adf8be1232eef1f14e36efd8dba3e143aa6e36f5b7a36f5"
 	expectedNightlyExecutionHash = "dfe3e40bf2fb461e2f7422ea93b7f9ea769f0e8bf35eb6060690af6f2f361877"
 	expectedSetupActionHash      = "8f2d6b3a57f11d4f33a41211b1d3d5362d1437ba40c7b6db068abb98e731e5ac"

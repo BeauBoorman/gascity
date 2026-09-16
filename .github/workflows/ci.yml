@@ -478,6 +478,9 @@ jobs:
     env:
       DOLT_VERSION: "2.1.7"
       GC_REQUIRE_ACCEPTANCE_TOOLING: "1"
+      # Tier A skips the matrix to stay a smoke tier. This is the job that runs
+      # it, so this is the job that opts in.
+      GC_ACCEPTANCE_TOPOLOGY_MATRIX: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       # bd-version is empty: this job builds bd from BD_CURRENT_REF below,

@@ -26,6 +26,7 @@ import (
 )
 
 func TestBeadsInitTopologyMatrix(t *testing.T) {
+	helpers.RequireTopologyMatrix(t)
 	helpers.ForEachTopology(t, testEnv, func(t *testing.T, run *helpers.TopologyRun) {
 		topo := run.Topology
 		t.Logf("%s — %s", topo.Name, topo.Doc)

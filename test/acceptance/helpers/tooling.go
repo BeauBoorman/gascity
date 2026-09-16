@@ -12,7 +12,27 @@ const (
 	EnvRequireTooling = "GC_REQUIRE_ACCEPTANCE_TOOLING"
 	// EnvRequireLegacyGC makes a missing pre-journal gc fatal instead of a skip.
 	EnvRequireLegacyGC = "GC_REQUIRE_ACCEPTANCE_LEGACY_GC"
+	// EnvTopologyMatrix opts a run in to the full bd/dolt topology matrix.
+	EnvTopologyMatrix = "GC_ACCEPTANCE_TOPOLOGY_MATRIX"
 )
+
+// RequireTopologyMatrix skips unless the run opted in to the topology matrix.
+//
+// Every shape stands up real Dolt servers and a real bd proxy, and the matrix
+// runs them back to back: on the Mac Tier A runner it reached 14 minutes and
+// blew `make test-acceptance`'s 20-minute budget with M2-direct-local alone
+// taking 11 of them. Tier A is a smoke tier, so the matrix is not its job.
+// The Beads / topology acceptance workflow sets this and is where the shapes
+// actually run, under GC_REQUIRE_ACCEPTANCE_TOOLING so it cannot pass by
+// skipping them.
+func RequireTopologyMatrix(t *testing.T) {
+	t.Helper()
+	if requireSwitchOn(EnvTopologyMatrix) {
+		return
+	}
+	t.Skipf("the topology matrix stands up real Dolt servers per shape and does not fit the Tier A smoke budget; "+
+		"set %s=1 (the Beads / topology acceptance job does) to run it", EnvTopologyMatrix)
+}
 
 // requireSwitchOn reports whether a GC_REQUIRE_* switch is on. Unset, empty and
 // "0" are off; anything else is on.
