@@ -9,14 +9,20 @@ import (
 	"time"
 )
 
-// handoffGuardTestCity returns a city root in the same canonical form the
-// handoff guard computes, so a refusal that names a path can be matched
-// literally. Plain EvalSymlinks is not enough: on macOS it resolves TempDir to
-// /private/var/... while normalizePathForCompare collapses that host alias back
-// to /var/..., and the guard's message is built from the normalized path.
+// handoffGuardTestCity returns a city root resolved the way the ownership
+// projection resolves one. It must stay plain EvalSymlinks: the projection
+// binds a journal to a scope by comparing filepath.Clean against the resolved
+// root (validateProjectionRequest), so a root canonicalized any other way is
+// read as binding a different scope. Callers that need to match a refusal
+// message instead of the projection want normalizePathForCompare, which also
+// collapses the macOS /private/var alias the message carries.
 func handoffGuardTestCity(t *testing.T) string {
 	t.Helper()
-	return normalizePathForCompare(t.TempDir())
+	city, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve handoff test city: %v", err)
+	}
+	return city
 }
 
 func TestHandoffJournalBlocksManagedDoltStart(t *testing.T) {

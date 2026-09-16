@@ -75,7 +75,11 @@ func TestStartManagedRefusalNamesTheCommittedHandoff(t *testing.T) {
 	if strings.TrimSpace(got) == "" {
 		t.Fatal("start-managed refused a handed-off city with an empty message")
 	}
-	for _, want := range []string{"ownership handoff", journal} {
+	// The guard builds its message from normalizePathForCompare, which on macOS
+	// collapses the /private/var alias EvalSymlinks produces. Compare against
+	// the same canonical form rather than the path the fixture wrote through.
+	wantJournal := normalizePathForCompare(journal)
+	for _, want := range []string{"ownership handoff", wantJournal} {
 		if !strings.Contains(got, want) {
 			t.Errorf("start-managed refusal does not mention %q:\n%s", want, got)
 		}
