@@ -469,20 +469,21 @@ func ForEachTopology(t *testing.T, base *Env, fn func(t *testing.T, run *Topolog
 	}
 }
 
-// RequireTopologyTooling resolves the bd and dolt the matrix needs, or skips.
+// RequireTopologyTooling resolves the bd and dolt the matrix needs. It skips
+// when they are absent, or fails under GC_REQUIRE_ACCEPTANCE_TOOLING.
 func RequireTopologyTooling(t *testing.T) (bdPath, doltPath string) {
 	t.Helper()
 	bdPath = FindBD()
 	if bdPath == "" {
-		t.Skip("bd not available; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0")
+		MissingTooling(t, "bd is not available; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0")
 	}
 	out, err := exec.Command(bdPath, "init", "--help").CombinedOutput() //nolint:gosec // resolved test binary
 	if err != nil || !strings.Contains(string(out), "--proxied-server") {
-		t.Skipf("bd at %s has no proxied-server support; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0", bdPath)
+		MissingTooling(t, "bd at %s has no proxied-server support; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0", bdPath)
 	}
 	doltPath, err = exec.LookPath("dolt")
 	if err != nil {
-		t.Skip("dolt not installed")
+		MissingTooling(t, "dolt is not installed")
 	}
 	return bdPath, doltPath
 }
@@ -583,7 +584,7 @@ func StartTopology(t *testing.T, base *Env, topo BeadsTopology, bdPath, doltPath
 	if topo.LegacyInit {
 		run.LegacyGCPath = LegacyGCBinary()
 		if run.LegacyGCPath == "" {
-			t.Skip("no pre-journal gc binary; set GC_ACCEPTANCE_LEGACY_GC_BIN to a gc built from a commit before the ownership journal")
+			MissingLegacyGC(t, "there is no pre-journal gc binary; set GC_ACCEPTANCE_LEGACY_GC_BIN to a gc built from a commit before the ownership journal")
 		}
 	}
 	if topo.Upstream {

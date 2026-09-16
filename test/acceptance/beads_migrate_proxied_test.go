@@ -41,12 +41,13 @@ import (
 	helpers "github.com/gastownhall/gascity/test/acceptance/helpers"
 )
 
-// requireLegacyGCBinary resolves the old-way gc, or skips.
+// requireLegacyGCBinary resolves the old-way gc. It skips when there is none,
+// or fails under GC_REQUIRE_ACCEPTANCE_LEGACY_GC.
 func requireLegacyGCBinary(t *testing.T) string {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("GC_ACCEPTANCE_LEGACY_GC_BIN"))
 	if raw == "" {
-		t.Skip("no legacy gc available; set GC_ACCEPTANCE_LEGACY_GC_BIN to a gc that still initialises the GC-managed direct topology")
+		helpers.MissingLegacyGC(t, "there is no legacy gc available; set GC_ACCEPTANCE_LEGACY_GC_BIN to a gc that still initialises the GC-managed direct topology")
 	}
 	bin, err := filepath.Abs(raw)
 	if err != nil {

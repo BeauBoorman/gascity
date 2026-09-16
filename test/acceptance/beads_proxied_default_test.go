@@ -69,20 +69,21 @@ type doctorCheckResult struct {
 	Message string `json:"message"`
 }
 
-// requireProxiedTooling resolves the bd and dolt this test needs, or skips.
+// requireProxiedTooling resolves the bd and dolt this test needs. It skips when
+// they are absent, or fails under GC_REQUIRE_ACCEPTANCE_TOOLING.
 func requireProxiedTooling(t *testing.T) (string, string) {
 	t.Helper()
 	bdPath := helpers.FindBD()
 	if bdPath == "" {
-		t.Skip("bd not available; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0")
+		helpers.MissingTooling(t, "bd is not available; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0")
 	}
 	out, err := exec.Command(bdPath, "init", "--help").CombinedOutput() //nolint:gosec // resolved test binary
 	if err != nil || !strings.Contains(string(out), "--proxied-server") {
-		t.Skipf("bd at %s has no proxied-server support; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0", bdPath)
+		helpers.MissingTooling(t, "bd at %s has no proxied-server support; set GC_ACCEPTANCE_BD_BIN to a bd >= 1.3.0", bdPath)
 	}
 	doltPath, err := exec.LookPath("dolt")
 	if err != nil {
-		t.Skip("dolt not installed")
+		helpers.MissingTooling(t, "dolt is not installed")
 	}
 	return bdPath, doltPath
 }
