@@ -89,7 +89,7 @@ requiring `--force-with-lease` rather than a fast-forward.
 | 4 | No high-severity review findings open | PASS | `ga-zpo` round 1 recorded no blocker/major findings on the code; the sole blocking item was this document, corrected here. |
 | 5 | Final branch is clean | PASS | Worktree clean at `157b75d1382b0479585e253610bb2813428fb0e9` (round 3, current HEAD). Also clean at `79431771` (round 2) and at each rebase point in between — see Rebase note (round 3) above for the patch-id proof this carried zero content changes. |
 | 6 | Branch diverges cleanly from main | PASS | `builder/ga-pyp2oh` forked directly from `origin/main`; `ga-zpo`'s own structural check confirmed the merge-base already contains PR #4816's reachability rework this fix sits on top of, with no intervening `origin/main` commits touching the diffed files. |
-| 7 | Single feature theme | PASS | 5 files, one subsystem: the repo-global stash-gate false positive in worktree reclaim (`cmd/gc`), plus this gate record. |
+| 7 | Single feature theme | PASS | 11 of 12 files are one subsystem: the repo-global stash-gate false positive in worktree reclaim (`cmd/gc`), the config doc comments describing that gate (`internal/config`), the three generated docs regenerated from those comments, plus this gate record. The 12th, `cmd/gc/dolt_data_dir_lock_other.go`, is a one-line `revive` unblock folded in during fix-merge integration and is explicitly not part of the theme — see Out-of-theme file below. |
 
 ## Root cause
 
@@ -104,27 +104,63 @@ existed anywhere in the repo.
 
 ## Diff Summary
 
-`git diff --name-status origin/main...HEAD` (5 files):
+Earlier rounds of this document described a 5-file diff. That was accurate
+when written but went stale as the branch grew: rounds since then added the
+reaper-side regression test, a stale-prose fix in `session_reconciler.go`,
+the `internal/config` doc-comment updates and their three regenerated docs,
+and the fix-merge integration commits below. The blocks here are
+regenerated from the current HEAD.
+
+`git diff --name-status origin/main...HEAD` (12 files):
 
 ```text
 M	cmd/gc/bead_worktree_reaper.go
+M	cmd/gc/bead_worktree_reaper_integration_test.go
+M	cmd/gc/dolt_data_dir_lock_other.go
+M	cmd/gc/session_reconciler.go
 M	cmd/gc/session_worktree_prune.go
 M	cmd/gc/session_worktree_prune_info_test.go
 M	cmd/gc/session_worktree_prune_test.go
+M	docs/reference/config.md
+M	docs/reference/schema/city-schema.json
+M	docs/reference/schema/city-schema.txt
+M	internal/config/config.go
 A	release-gates/ga-qlcqru-worktree-reclaim-stash-gate.md
 ```
 
-`git diff --stat origin/main...HEAD` for the 4 code files (this doc is a
-new file each round and its own line count isn't meaningful to cite from
-inside itself):
+`git diff --stat origin/main...HEAD` for the 11 non-doc files (this
+release-gate doc is a new file each round and its own line count isn't
+meaningful to cite from inside itself):
 
 ```text
- cmd/gc/bead_worktree_reaper.go             |  9 ++--
- cmd/gc/session_worktree_prune.go           | 25 +----------
- cmd/gc/session_worktree_prune_info_test.go | 24 ----------
- cmd/gc/session_worktree_prune_test.go      | 71 +++++++++++++++++++++---------
- 4 files changed, 54 insertions(+), 75 deletions(-)
+ cmd/gc/bead_worktree_reaper.go                  |   9 +-
+ cmd/gc/bead_worktree_reaper_integration_test.go |  50 +++++++++
+ cmd/gc/dolt_data_dir_lock_other.go              |   2 +-
+ cmd/gc/session_reconciler.go                    |   2 +-
+ cmd/gc/session_worktree_prune.go                |  25 +----
+ cmd/gc/session_worktree_prune_info_test.go      |  24 -----
+ cmd/gc/session_worktree_prune_test.go           | 135 ++++++++++++++++++++----
+ docs/reference/config.md                        |   4 +-
+ docs/reference/schema/city-schema.json          |   4 +-
+ docs/reference/schema/city-schema.txt           |   4 +-
+ internal/config/config.go                       |   8 +-
+ 11 files changed, 182 insertions(+), 85 deletions(-)
 ```
+
+The three files under `docs/reference/` are generated, not hand-edited:
+they are regenerated from the `DaemonConfig` doc comments in
+`internal/config/config.go`, which this diff updates to stop describing a
+stash gate that no longer exists.
+
+### Out-of-theme file
+
+`cmd/gc/dolt_data_dir_lock_other.go` is not part of the stash-gate fix. It
+is a one-line `revive` unblock (`unused-parameter: parameter 'lockPath'`)
+folded in during fix-merge integration because it was the sole red check on
+the PR. The file is `//go:build !linux`, so only the `Mac / quality (lint,
+fmt, vet, docs)` tier ever compiles it; both parameters are unreferenced in
+the stub body and are now blanked. Arity, return values and behavior are
+unchanged.
 
 `internal/git/git.go` still defines `HasStashesResult()` (used by
 `internal/doctor`, which is out of scope here per the Correction note
