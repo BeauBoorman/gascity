@@ -26,11 +26,12 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
       - name: Show what we are about to install
         run: |
+          # current core tap, so the smoke tests today's bottled pairing (not the runner image's stale index)
+          brew update --quiet   # current core tap, so the smoke tests today's bottled pairing
           brew info gascity | sed -n '1,6p'
           brew info beads | sed -n '1,4p'
 
@@ -46,15 +47,16 @@ jobs:
       # can read a store created by the current bottled bd CLI. Schema-version
       # skew here is exactly the v1.4.1 failure mode — fail loudly, do not ship.
       - name: Store interop sanity
+        id: interop
         run: |
-          mkdir -p "$RUNNER_TEMP/gc-smoke" && cd "$RUNNER_TEMP/gc-smoke"
+          GC_SMOKE_DIR="$RUNNER_TEMP/gc-smoke-$GITHUB_RUN_ID" && mkdir -p "$GC_SMOKE_DIR" && cd "$GC_SMOKE_DIR"
           bd init
           gc bd list
           gc mail count
           echo "store interop OK: bottled gc reads current bd CLI store"
 
       - name: Report interop failure details
-        if: failure()
+        if: failure() && steps.interop.outcome == 'failure'
         run: |
           echo "::error::Released gc (Homebrew core) cannot read a store created by the current bottled bd."
           echo "::error::Likely cause: bottled gc embeds an older bd than the formula's beads dependency (v1.4.1 class, #6393/#6416)."

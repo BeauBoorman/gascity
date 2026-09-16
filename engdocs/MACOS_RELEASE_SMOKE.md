@@ -54,16 +54,32 @@ exactly the v1.4.1 failure mode: bottled gc + current bd CLI + migrated store
 ```sh
 curl -fsSL -o gc.tar.gz \
   "https://github.com/gastownhall/gascity/releases/download/v<VERSION>/gc_<VERSION>_darwin_arm64.tar.gz"
-tar xzf gc.tar.gz && ./gc version
-./gc bd list                              # same store-interop check against a real store
+tar xzf gc.tar.gz
+"$(pwd)/gc" version
+GC_BIN="$(pwd)/gc"
+mkdir -p /tmp/gc-release-smoke && cd /tmp/gc-release-smoke && bd init
+"$GC_BIN" bd list                       # same store-interop check against a real store
 ```
 
 ### 5. Version-contains check
 
+`go list -m` reports the embedded bd as a module pseudo-version
+(`v0.0.0-<timestamp>-<12-char-commit>`); only that commit suffix is a real
+object, and it lives in the beads repo, not this checkout.
+
 ```sh
-git tag --contains "$(go list -m -f '{{.Version}}' github.com/steveyegge/beads 2>/dev/null)" || \
-  echo "WARNING: embedded bd commit is not in any tag — the interop check above is load-bearing"
+BD_PSEUDO="$(go list -m -f '{{.Version}}' github.com/steveyegge/beads 2>/dev/null)"
+BD_SHA="${BD_PSEUDO##*-}"
+if [ -n "$BD_SHA" ] && git -C "$BEADS_CHECKOUT" tag --contains "$BD_SHA" | grep -q .; then
+  echo "embedded bd $BD_SHA is inside a tagged beads release"
+else
+  echo "WARNING: embedded bd commit $BD_SHA is not in any beads tag — the interop check above is load-bearing"
+fi
 ```
+
+`$BEADS_CHECKOUT` is any clone of `github.com/steveyegge/beads` — the Go module host named in `go.mod` (shallow is
+fine; `git fetch --tags` first). If it is not available, skip the check and
+treat the interop check in step 4 as authoritative.
 
 ## CI
 
