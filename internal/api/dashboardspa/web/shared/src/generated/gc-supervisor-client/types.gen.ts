@@ -904,7 +904,7 @@ export type EventEmitRequest = {
     type: string;
 };
 
-export type EventPayload = AdapterEventPayload | BackendCredentialResolvedPayload | BeadClaimRejectedPayload | BeadClaimReleasedPayload | BeadDeadAssigneeReopenedPayload | BeadEventPayload | BeadWorktreeReapSkippedPayload | BeadWorktreeReapedPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | ConditionalWritesDegradedPayload | ControlRootSettleFailedPayload | ControlStalledPayload | ExecutionClaimStalledPayload | ExecutionClaimWindowExpiredPayload | ExecutionStepStalledPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | MoleculeResolvedPayload | NoPayload | OrderSuppressedPayload | OutboundChannelMismatchPayload | OutboundEventPayload | ProjectIdentityStampedPayload | Record | RequestFailedPayload | RigCreateSucceededPayload | RigProvisionProgressPayload | RotatedPayload | SessionCreateSucceededPayload | SessionDemandClaimDivergencePayload | SessionDrainAckedWithAssignedWorkPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionResetStalledPayload | SessionStrandedPayload | SessionSubmitSucceededPayload | SessionUnknownStatePayload | SessionWakeRefusedPayload | StorageBindingOutcomePayload | StoreDiskCriticalPayload | StoreDiskWarnPayload | StoreMaintenanceDonePayload | StoreMaintenanceFailedPayload | SupervisorFsPressureSkippedTickPayload | SupervisorRequestPayload | SupervisorShutdownPayload | SupervisorStartedPayload | UnboundEventPayload | WebhookReceivedPayload | WebhookRejectedPayload | WorkerOperationEventPayload;
+export type EventPayload = AdapterEventPayload | BackendCredentialResolvedPayload | BeadClaimRejectedPayload | BeadClaimReleasedPayload | BeadDeadAssigneeReopenedPayload | BeadEventPayload | BeadWorktreeReapSkippedPayload | BeadWorktreeReapedPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | ConditionalWritesDegradedPayload | ControlRootSettleFailedPayload | ControlStalledPayload | ExecutionClaimStalledPayload | ExecutionClaimWindowExpiredPayload | ExecutionStepStalledPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | MoleculeResolvedPayload | NoPayload | NudgeDialogBlockedPayload | OrderSuppressedPayload | OutboundChannelMismatchPayload | OutboundEventPayload | ProjectIdentityStampedPayload | Record | RequestFailedPayload | RigCreateSucceededPayload | RigProvisionProgressPayload | RotatedPayload | SessionCreateSucceededPayload | SessionDemandClaimDivergencePayload | SessionDrainAckedWithAssignedWorkPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionResetStalledPayload | SessionStrandedPayload | SessionSubmitSucceededPayload | SessionUnknownStatePayload | SessionWakeRefusedPayload | StorageBindingOutcomePayload | StoreDiskCriticalPayload | StoreDiskWarnPayload | StoreMaintenanceDonePayload | StoreMaintenanceFailedPayload | SupervisorFsPressureSkippedTickPayload | SupervisorRequestPayload | SupervisorShutdownPayload | SupervisorStartedPayload | UnboundEventPayload | WebhookReceivedPayload | WebhookRejectedPayload | WorkerOperationEventPayload;
 
 export type EventRotateAnchor = {
     /**
@@ -2023,6 +2023,12 @@ export type MonitorFeedItemResponse = {
 
 export type NoPayload = {
     [key: string]: never;
+};
+
+export type NudgeDialogBlockedPayload = {
+    bead_id?: string;
+    dialog_kind: string;
+    session_id: string;
 };
 
 export type OkResponseBody = {
@@ -5340,6 +5346,8 @@ export type TypedEventStreamEnvelope = ({
 } & TypedEventStreamEnvelopeMailSent) | ({
     type: 'molecule.resolved';
 } & TypedEventStreamEnvelopeMoleculeResolved) | ({
+    type: 'nudge.dialog_blocked';
+} & TypedEventStreamEnvelopeNudgeDialogBlocked) | ({
     type: 'order.completed';
 } & TypedEventStreamEnvelopeOrderCompleted) | ({
     type: 'order.failed';
@@ -6388,6 +6396,24 @@ export type TypedEventStreamEnvelopeMoleculeResolved = {
 };
 
 /**
+ * TypedEventStreamEnvelope nudge.dialog_blocked
+ */
+export type TypedEventStreamEnvelopeNudgeDialogBlocked = {
+    actor: string;
+    depends_on_step_ids?: Array<string>;
+    message?: string;
+    payload: NudgeDialogBlockedPayload;
+    run_id?: string;
+    seq: number;
+    session_id?: string;
+    step_id?: string;
+    subject?: string;
+    ts: string;
+    type: 'nudge.dialog_blocked';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
  * TypedEventStreamEnvelope order.completed
  */
 export type TypedEventStreamEnvelopeOrderCompleted = {
@@ -7307,6 +7333,8 @@ export type TypedTaggedEventStreamEnvelope = ({
 } & TypedTaggedEventStreamEnvelopeMailSent) | ({
     type: 'molecule.resolved';
 } & TypedTaggedEventStreamEnvelopeMoleculeResolved) | ({
+    type: 'nudge.dialog_blocked';
+} & TypedTaggedEventStreamEnvelopeNudgeDialogBlocked) | ({
     type: 'order.completed';
 } & TypedTaggedEventStreamEnvelopeOrderCompleted) | ({
     type: 'order.failed';
@@ -8404,6 +8432,25 @@ export type TypedTaggedEventStreamEnvelopeMoleculeResolved = {
     subject?: string;
     ts: string;
     type: 'molecule.resolved';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedTaggedEventStreamEnvelope nudge.dialog_blocked
+ */
+export type TypedTaggedEventStreamEnvelopeNudgeDialogBlocked = {
+    actor: string;
+    city: string;
+    depends_on_step_ids?: Array<string>;
+    message?: string;
+    payload: NudgeDialogBlockedPayload;
+    run_id?: string;
+    seq: number;
+    session_id?: string;
+    step_id?: string;
+    subject?: string;
+    ts: string;
+    type: 'nudge.dialog_blocked';
     workflow?: WorkflowEventProjection;
 };
 
