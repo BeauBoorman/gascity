@@ -11,6 +11,18 @@ import (
 	"strings"
 )
 
+// acceptanceGitConfig mirrors scripts/test-gitconfig-path. beads.role is the
+// load-bearing key: gc doctor errors without it and gc-beads-bd's
+// ensure_beads_role otherwise tries to write it to the host.
+const acceptanceGitConfig = `[user]
+	name = gc-test
+	email = gc-test@test.local
+[beads]
+	role = maintainer
+[safe]
+	directory = *
+`
+
 // Env builds an isolated environment for acceptance tests.
 // It filters the host environment to a safe allowlist, then layers
 // test-specific overrides on top.
@@ -108,6 +120,21 @@ func NewEnv(gcBinary, gcHome, runtimeDir string) *Env {
 		panic(fmt.Sprintf("acceptance: seeding dolt identity under %s: %v", doltRoot, err))
 	}
 	e.vars["DOLT_ROOT_PATH"] = gcHome
+
+	// The Makefile points GIT_CONFIG_GLOBAL at scripts/test-gitconfig-path, but a
+	// caller that runs `go test -tags acceptance_a` directly supplies no seed at
+	// all, and the child then reads the host's real global config. That is how
+	// gc doctor's beads-role check failed on a CI runner that had never opted in
+	// — and it is also how gc-beads-bd's ensure_beads_role could write into a
+	// developer's own global config. Seed one under GC_HOME instead.
+	if e.vars["GIT_CONFIG_GLOBAL"] == "" {
+		gitConfig := filepath.Join(gcHome, "gitconfig")
+		if err := os.WriteFile(gitConfig, []byte(acceptanceGitConfig), 0o644); err != nil {
+			panic(fmt.Sprintf("acceptance: seeding global git config at %s: %v", gitConfig, err))
+		}
+		e.vars["GIT_CONFIG_GLOBAL"] = gitConfig
+		e.vars["GIT_CONFIG_NOSYSTEM"] = "1"
+	}
 
 	e.vars["XDG_RUNTIME_DIR"] = runtimeDir
 	tmuxTmpDir := filepath.Join(runtimeDir, "tmux")

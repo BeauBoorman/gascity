@@ -79,6 +79,33 @@ func TestNewEnvSeedsDoltAuthorIdentity(t *testing.T) {
 	}
 }
 
+// With no seed from the caller — a bare `go test -tags acceptance_a`, which is
+// what the CI topology job runs — NewEnv must supply its own. Without it the
+// child read the runner's real global config and gc doctor errored on
+// beads-role.
+func TestNewEnvSeedsGitConfigWhenTheCallerSuppliesNone(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "")
+	gcHome := t.TempDir()
+
+	env := NewEnv("", gcHome, t.TempDir())
+
+	seed := env.Get("GIT_CONFIG_GLOBAL")
+	if seed == "" {
+		t.Fatal("NewEnv() left GIT_CONFIG_GLOBAL empty; the child would read the host's global config")
+	}
+	body, err := os.ReadFile(seed)
+	if err != nil {
+		t.Fatalf("reading seeded git config: %v", err)
+	}
+	if !strings.Contains(string(body), "role = maintainer") {
+		t.Errorf("seeded git config is missing beads.role: %s", body)
+	}
+	if got := env.Get("GIT_CONFIG_NOSYSTEM"); got != "1" {
+		t.Errorf("NewEnv() GIT_CONFIG_NOSYSTEM = %q, want %q", got, "1")
+	}
+}
+
 // The Makefile points these at a seeded global gitconfig carrying
 // beads.role=maintainer. Dropping them sent the child at the host's real
 // global config, and `gc doctor` then failed its beads-role check.
