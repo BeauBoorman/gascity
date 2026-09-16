@@ -13,6 +13,10 @@
 #      blocking prune here would regress the zero-Dolt-databases contract).
 #   4. Backup-age gate already skipping                   → guard's own SQL count is
 #      not run at all (short-circuit; only the backup-age anomaly fires).
+#   5. SESSION_BEAD_PATTERN contains SQL metacharacters (e.g. a single quote)
+#      → rejected before the type-scope guard builds any SQL text: no
+#      get_sql_count call (pattern never reaches dolt_sql), prune skipped,
+#      anomaly recorded.
 
 set -euo pipefail
 
@@ -40,13 +44,15 @@ STEP6=$(awk '
   }
 ' "$REAPER")
 
-# run_step6 <sql_count> <city_db> <backup_fresh>
+# run_step6 <sql_count> <city_db> <backup_fresh> [pattern]
 # Returns: <bd_called>|<anomaly_called>|<anomaly_count>|<query_seen>|<anomaly_msg>
 run_step6() {
     local sql_count="$1"
     local city_db="$2"
     local backup_fresh="${3:-fresh}"
+    local pattern="${4:-gm-*}"
     local tmpdir bd_flag anomaly_flag anomaly_msg_file query_file step6_file run_script
+    local pattern_escaped
 
     tmpdir=$(mktemp -d)
     bd_flag="$tmpdir/bd_called"
@@ -65,6 +71,12 @@ run_step6() {
 
     printf '%s\n' "$STEP6" > "$step6_file"
 
+    # Single-quote-escape the pattern for safe embedding as a literal bash
+    # assignment below -- the pattern itself may contain quotes (that is
+    # exactly what T5 exercises) and must reach SESSION_BEAD_PATTERN intact,
+    # not be allowed to break out of the generated script's own syntax.
+    pattern_escaped=$(printf '%s' "$pattern" | sed "s/'/'\\\\''/g")
+
     # NB: heredoc terminator must be at column 0; variables below are expanded by
     # the outer shell when writing the script (intentional), except \$* / \$3
     # which we want runtime-expanded inside the generated stub functions.
@@ -77,7 +89,7 @@ get_sql_count() { printf '%s\n' "\$3" >> '$query_file'; SQL_COUNT_RESULT='$sql_c
 export -f gc record_anomaly get_sql_count
 CITY_ABS='$tmpdir'
 CITY_BEADS_DIR='$tmpdir/.beads'
-SESSION_BEAD_PATTERN='gm-*'
+SESSION_BEAD_PATTERN='$pattern_escaped'
 SESSION_PURGE_AGE='720h'
 DRY_RUN=''
 TOTAL_SESSIONS_PRUNED=0
@@ -146,6 +158,22 @@ if [ "$bd_called" = "no" ] && [ "$anomaly_count" -eq 1 ] && [ -z "$query_seen" ]
     pass "T4: backup-age gate already stale → type-scope count never runs, single anomaly"
 else
     fail "T4: backup-age gate already stale → expected bd=no anomaly_count=1 query=unset; got bd=$bd_called anomaly_count=$anomaly_count query=$query_seen"
+fi
+
+# T5: SESSION_BEAD_PATTERN contains a single quote (SQL injection attempt) →
+# rejected before any SQL is built; prune skipped, no get_sql_count call,
+# anomaly recorded (ga-t832q4.2 round 2: the type-scope guard's own LIKE
+# query previously spliced this value in unsanitized).
+result=$(run_step6 "0" "test_db" "fresh" "x' OR '1'='1")
+bd_called=$(printf '%s' "$result" | cut -d'|' -f1)
+anomaly_called=$(printf '%s' "$result" | cut -d'|' -f2)
+query_seen=$(printf '%s' "$result" | cut -d'|' -f4)
+anomaly_msg=$(printf '%s' "$result" | cut -d'|' -f5-)
+if [ "$bd_called" = "no" ] && [ "$anomaly_called" = "yes" ] && [ -z "$query_seen" ] \
+        && printf '%s' "$anomaly_msg" | grep -qi "pattern"; then
+    pass "T5: SESSION_BEAD_PATTERN with single quote → rejected before SQL built, prune skipped, anomaly recorded"
+else
+    fail "T5: SESSION_BEAD_PATTERN with single quote → expected bd=no anomaly=yes+pattern keyword query=unset; got bd=$bd_called anomaly=$anomaly_called query=$query_seen msg=$anomaly_msg"
 fi
 
 [ "$FAILED" -eq 0 ] && exit 0 || exit 1
