@@ -22,6 +22,7 @@ import (
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/gastownhall/gascity/internal/runtime"
+	"github.com/gastownhall/gascity/internal/testutil"
 )
 
 type partialListDoctorProvider struct {
@@ -1778,8 +1779,18 @@ func TestDoltServerCheck_ManagedCityUsesRuntimeState(t *testing.T) {
 	}
 }
 
+// socketCityDir returns a city root short enough that a Unix socket created
+// inside it stays under the platform sun_path limit. t.TempDir() is not: on
+// macOS it lands under /var/folders/<...>/T/<TestName><digits>/001, which spends
+// well past the 104-byte limit before the socket name is even appended, and
+// net.Listen then fails with "bind: invalid argument".
+func socketCityDir(t *testing.T) string {
+	t.Helper()
+	return testutil.ShortTempDir(t, "gc-doctor-")
+}
+
 func TestDoltServerCheck_ProxiedSidecarUnixReachable(t *testing.T) {
-	dir := t.TempDir()
+	dir := socketCityDir(t)
 	fs := fsys.OSFS{}
 	writeDoctorCanonicalConfig(t, fs, dir, contract.ConfigState{EndpointOrigin: contract.EndpointOriginManagedCity, DoltMode: "proxied-server"})
 	// metadata.json is the mode authority, so the fixture has to say proxied
@@ -1862,7 +1873,7 @@ func TestRigDoltServerCheck_InheritedProxiedSidecarTCPReachable(t *testing.T) {
 }
 
 func TestRigDoltServerCheck_ProxiedSidecarUnixReachable(t *testing.T) {
-	cityDir := t.TempDir()
+	cityDir := socketCityDir(t)
 	rigDir := filepath.Join(cityDir, "demo")
 	fs := fsys.OSFS{}
 	writeDoctorCanonicalConfig(t, fs, cityDir, contract.ConfigState{EndpointOrigin: contract.EndpointOriginManagedCity, DoltMode: "proxied-server"})
@@ -2181,7 +2192,7 @@ func TestRigDoltServerCheck_ExplicitRigReachable(t *testing.T) {
 }
 
 func TestRigDoltServerCheck_ExplicitRigUnixSocketReachable(t *testing.T) {
-	cityDir := t.TempDir()
+	cityDir := socketCityDir(t)
 	rigDir := filepath.Join(cityDir, "demo")
 	socket := filepath.Join(rigDir, "dolt.socket")
 	if err := os.MkdirAll(rigDir, 0o755); err != nil {
